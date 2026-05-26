@@ -1,0 +1,14 @@
+{
+  "stuck": {
+    "sample_interval": 0.3,
+    "threshold": 10,
+    "max_recovery_attempts": 3
+  },
+  "battle": {
+    "miss_threshold": 3,
+    "min_duration": 30,
+    "ocr_interval_initial": 1,
+    "ocr_interval_stable": 3,
+    "max_diff": 10
+  }
+}

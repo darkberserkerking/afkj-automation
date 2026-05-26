@@ -705,6 +705,52 @@ class AFKBot:
         self.log(f'[{VERSION}] MaaOCR PP-OCRv5 引擎初始化')
         self.log('[OCR Memory] 已加载 ' + str(len(self._ocr_memory.memory)) + ' 条记忆')
 
+        # 加载配置文件
+        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'afkj_config.json')
+        self.config = self._load_config()
+
+    def _load_config(self):
+        """加载配置文件，如果不存在则创建默认配置"""
+        default_config = {
+            "stuck": {
+                "sample_interval": 0.3,
+                "threshold": 10,
+                "max_recovery_attempts": 3
+            },
+            "battle": {
+                "miss_threshold": 3,
+                "min_duration": 30,
+                "ocr_interval_initial": 1,
+                "ocr_interval_stable": 3,
+                "max_diff": 10
+            }
+        }
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    user_config = json.load(f)
+                # 合并用户配置到默认配置（深度合并）
+                for section in user_config:
+                    if section in default_config:
+                        default_config[section].update(user_config[section])
+                    else:
+                        default_config[section] = user_config[section]
+        except Exception as e:
+            print(f'配置文件加载失败，使用默认配置: {e}')
+        # 如果配置文件不存在，保存默认配置
+        if not os.path.exists(self.config_file):
+            self.config = default_config
+            self._save_config()
+        return default_config
+
+    def _save_config(self):
+        """保存当前配置到文件（供 GUI 调用）"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f'保存配置失败: {e}')
+
 
     def click_template(self, name, conf=0.8, label=''):
         """
@@ -1906,17 +1952,16 @@ class AFKBot:
 
     def wait_for_battle_end(self, current_mode='huanling'):
         self.log('等待战斗结束...')
+        battle_cfg = self.config['battle']
         start_time = time.time()
         battle_started = False
         last_ocr_time = 0
         cached_texts = []
         miss_count = 0  # 连续漏检计数
-        MISS_THRESHOLD = 3  # 连续漏检3次才认为战斗真正结束
-        MIN_BATTLE_DURATION = 30  # 最短战斗时间30秒，防止早期误判结束
         prev_battle_stage = 0  # 上次检测的赛季关卡
         # 优化：使用画面指纹减少无效OCR
         last_fp = None  # 上次画面指纹
-        ocr_interval = 1  # OCR间隔（秒），开始时1秒（快速检测战斗开始）
+        ocr_interval = battle_cfg['ocr_interval_initial']  # OCR间隔（秒），开始时快速检测战斗开始
         next_ocr_check = 0  # 下次OCR检查时间
 
         while True:
@@ -1934,11 +1979,11 @@ class AFKBot:
             self.set_status(phase='battle')
 
             now = time.time()
-            # 动态调整OCR间隔：战斗开始1秒一次（快速检测），30秒后3秒一次（降低频率）
-            if elapsed < 30:
-                ocr_interval = 1
+            # 动态调整OCR间隔：战斗开始快速检测，min_duration秒后降低频率
+            if elapsed < battle_cfg['min_duration']:
+                ocr_interval = battle_cfg['ocr_interval_initial']
             else:
-                ocr_interval = 3
+                ocr_interval = battle_cfg['ocr_interval_stable']
 
             if now >= next_ocr_check:
                 # 计算当前画面指纹
@@ -1958,9 +2003,8 @@ class AFKBot:
                     battle_stage = self._detect_battle_stage(img)  # 传入img，避免重复截图
                     if prev_battle_stage > 0 and battle_stage > prev_battle_stage:
                         diff = battle_stage - prev_battle_stage
-                        # 合理性校验：单次推进超过10关视为OCR异常（正常一场最多几关）
-                        MAX_DIFF = 10
-                        if diff > MAX_DIFF:
+                        # 合理性校验：单次推进超过max_diff关视为OCR异常（正常一场最多几关）
+                        if diff > battle_cfg['max_diff']:
                             self.log(f'  ⚠ OCR异常：赛季关卡 {prev_battle_stage} -> {battle_stage} (diff=+{diff})，忽略')
                         else:
                             self.stats['stage_progress'] += diff
@@ -2012,14 +2056,14 @@ class AFKBot:
                 return 'done'
             if battle_started and not in_battle:
                 miss_count += 1
-                if miss_count < MISS_THRESHOLD:
+                if miss_count < battle_cfg['miss_threshold']:
                     # 漏检次数未达阈值，继续等待（不输出日志避免刷屏）
                     time.sleep(2)
                     continue
                 # 连续漏检达到阈值，确认战斗结束
                 # 最短战斗时间保护：30秒内不承认结束（防止早期误判）
-                if elapsed < MIN_BATTLE_DURATION:
-                    self.log(f'  [{elapsed}s] 漏检{miss_count}次但战斗时间<{MIN_BATTLE_DURATION}s，重置计数继续等待')
+                if elapsed < battle_cfg['min_duration']:
+                    self.log(f'  [{elapsed}s] 漏检{miss_count}次但战斗时间<{battle_cfg["min_duration"]}s，重置计数继续等待')
                     miss_count = 0
                     time.sleep(2)
                     continue
@@ -2270,6 +2314,9 @@ class AFKBot:
                         script_start=time.time(), battle_start=0)
 
         cfg = self._cfg
+        bot_cfg = self.config
+        stuck_cfg = bot_cfg['stuck']
+        battle_cfg = bot_cfg['battle']
         max_rounds = cfg.get('max_rounds', 0)
         run_mode = cfg.get('run_mode', 'alternate')
 
@@ -2302,9 +2349,6 @@ class AFKBot:
             'huanling': self.stats.get('huanling_stage', 0),
             'normal': self.stats.get('normal_stage', 0),
         }
-        STUCK_SAMPLE_INTERVAL = 0.3  # 像素哈希极快，0.3秒足够
-        STUCK_THRESHOLD = 10  # 0.3s * 10 = 3秒无变化才触发恢复
-        MAX_RECOVERY_ATTEMPTS = 3
         stuck_recovery_attempts = 0
 
         phase = self.detect_phase()
@@ -2589,10 +2633,10 @@ class AFKBot:
                         base_fp = fp
                         break
                     same_count += 1
-                    self.log(f'  卡住检测: {same_count}/{STUCK_THRESHOLD}')
-                    if same_count >= STUCK_THRESHOLD:
+                    self.log(f'  卡住检测: {same_count}/{stuck_cfg['threshold']}')
+                    if same_count >= stuck_cfg['threshold']:
                         stuck_recovery_attempts += 1
-                        self.log(f'⚠ 画面已 {same_count * STUCK_SAMPLE_INTERVAL}s 无变化，第 {stuck_recovery_attempts} 次恢复')
+                        self.log(f'⚠ 画面已 {same_count * stuck_cfg['sample_interval']}s 无变化，第 {stuck_recovery_attempts} 次恢复')
                         recovered = self._try_recover_from_stuck()
                         if recovered:
                             self.log('✓ 恢复成功，继续')
@@ -2602,8 +2646,8 @@ class AFKBot:
                             time.sleep(2)
                             break
                         else:
-                            self.log(f'✗ 恢复失败（第 {stuck_recovery_attempts}/{MAX_RECOVERY_ATTEMPTS} 次）')
-                            if stuck_recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+                            self.log(f'✗ 恢复失败（第 {stuck_recovery_attempts}/{stuck_cfg['max_recovery_attempts']} 次）')
+                            if stuck_recovery_attempts >= stuck_cfg['max_recovery_attempts']:
                                 self.log('!! 连续恢复失败，停止脚本')
                                 self._stop = True
                                 break
@@ -2611,7 +2655,7 @@ class AFKBot:
                             base_fp = self._frame_fingerprint()
                             time.sleep(2)
                     else:
-                        time.sleep(STUCK_SAMPLE_INTERVAL)
+                        time.sleep(stuck_cfg['sample_interval'])
                 if self._stop:
                     break
 
@@ -2671,7 +2715,7 @@ class AFKBot:
                     break
 
                 time.sleep(1)
-                for _ in range(STUCK_THRESHOLD):
+                for _ in range(stuck_cfg['threshold']):
                     if self._stop:
                         break
                     if not self._check_pause():
@@ -2682,23 +2726,23 @@ class AFKBot:
                         base_fp = fp
                         break
                     same_count += 1
-                    self.log(f'  卡住检测: {same_count}/{STUCK_THRESHOLD}')
-                    if same_count >= STUCK_THRESHOLD:
+                    self.log(f'  卡住检测: {same_count}/{stuck_cfg['threshold']}')
+                    if same_count >= stuck_cfg['threshold']:
                         stuck_recovery_attempts += 1
-                        self.log(f'⚠ 画面已 {same_count * STUCK_SAMPLE_INTERVAL}s 无变化，第 {stuck_recovery_attempts} 次恢复')
+                        self.log(f'⚠ 画面已 {same_count * stuck_cfg['sample_interval']}s 无变化，第 {stuck_recovery_attempts} 次恢复')
                         recovered = self._try_recover_from_stuck()
                         if recovered:
                             self.log('✓ 恢复成功，从头开始本轮')
                             stuck_recovery_attempts = 0
                             break
                         else:
-                            self.log(f'✗ 恢复失败（第 {stuck_recovery_attempts}/{MAX_RECOVERY_ATTEMPTS} 次）')
-                            if stuck_recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+                            self.log(f'✗ 恢复失败（第 {stuck_recovery_attempts}/{stuck_cfg['max_recovery_attempts']} 次）')
+                            if stuck_recovery_attempts >= stuck_cfg['max_recovery_attempts']:
                                 self._stop = True
                                 break
                             time.sleep(2)
                     else:
-                        time.sleep(STUCK_SAMPLE_INTERVAL)
+                        time.sleep(stuck_cfg['sample_interval'])
                 if self._stop:
                     break
 
