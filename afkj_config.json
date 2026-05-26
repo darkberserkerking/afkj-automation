@@ -9,6 +9,8 @@
     "min_duration": 30,
     "ocr_interval_initial": 1,
     "ocr_interval_stable": 3,
-    "max_diff": 10
+    "max_diff": 10,
+    "max_iter_navigate": 40,
+    "max_attempts_close_result": 5
   }
 }

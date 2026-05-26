@@ -370,6 +370,20 @@ class Step:
             time.sleep(0.5)
         return False
 
+    def _wait_for_text(self, bot, keyword, timeout=15):
+        """等待指定文字出现（OCR 轮询）"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if bot._stop or not bot._pause.is_set():
+                return False
+            img, l, t, w, h = bot._snap()
+            items = bot._ocr_img(img)
+            texts = [t for _, _, t, c, *_ in items if c >= 0.5]
+            if any(keyword in t for t in texts):
+                return True
+            time.sleep(0.8)
+        return False
+
     def run(self, bot):
         """执行步骤，返回 True/False"""
         raise NotImplementedError
@@ -421,18 +435,7 @@ class OCRActionStep(Step):
         time.sleep(self.post_delay)
         return True
 
-    def _wait_for_text(self, bot, keyword, timeout=15):
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if bot._stop or not bot._pause.is_set():
-                return False
-            img, l, t, w, h = bot._snap()
-            items = bot._ocr_img(img)
-            texts = [t for _, _, t, c, *_ in items if c >= 0.5]
-            if any(keyword in t for t in texts):
-                return True
-            time.sleep(0.8)
-        return False
+
 
     def _handle_timeout(self, bot):
         if self.on_timeout == '__STOP__':
@@ -468,18 +471,6 @@ class RatioClickStep(Step):
                 return self._handle_timeout(bot)
         return True
 
-    def _wait_for_text(self, bot, keyword, timeout=10):
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if bot._stop or not bot._pause.is_set():
-                return False
-            img, l, t, w, h = bot._snap()
-            items = bot._ocr_img(img)
-            texts = [t for _, _, t, c, *_ in items if c >= 0.5]
-            if any(keyword in t for t in texts):
-                return True
-            time.sleep(0.8)
-        return False
 
     def _handle_timeout(self, bot):
         if self.on_timeout == '__STOP__':
@@ -1317,7 +1308,8 @@ class AFKBot:
           result       → 关闭             → 重新detect
           unknown      → ESC (no_progress) → 重新detect (连续3次→停止)
         """
-        MAX_ITER = 40
+        battle_cfg = self.config['battle']
+        max_iter = battle_cfg['max_iter_navigate']
         no_progress = 0
         last_phase = None
 
@@ -1360,7 +1352,7 @@ class AFKBot:
             self.log('✓ 已在挂机推图界面')
             return True
 
-        for i in range(MAX_ITER):
+        for i in range(max_iter):
             if self._stop:
                 return False
 
@@ -1518,16 +1510,17 @@ class AFKBot:
             self._send_esc()
             time.sleep(1.5)
 
-        self.log(f'⚠ 导航超时（{MAX_ITER}次迭代）')
+        self.log(f'⚠ 导航超时（{max_iter}次迭代）')
         return False
 
     # ── 操作步骤 ───────────────────────────────────────────────────
 
     def wait_for_idle_stage(self, timeout=30, img=None):
         self.log('等待挂机推图主界面...')
+        battle_cfg = self.config['battle']
         deadline = time.time() + timeout
         miss_count = 0
-        MISS_THRESHOLD = 3  # 连续 3 次无变化就 ESC
+        miss_threshold = battle_cfg['miss_threshold']  # 连续 N 次无变化就 ESC
         last_fp = None
 
         while time.time() < deadline:
@@ -1553,7 +1546,7 @@ class AFKBot:
             # 连续 3 次画面无变化 → ESC
             if fp == last_fp and last_fp is not None:
                 miss_count += 1
-                if miss_count >= MISS_THRESHOLD:
+                if miss_count >= miss_threshold:
                     self.log(f'  [{miss_count}s] 画面无变化，ESC...')
                     self._send_esc()
                     time.sleep(1)
@@ -2120,8 +2113,10 @@ class AFKBot:
         self._send_esc()
         self.log('  [确认框] ESC取消')
 
-    def step_close_result(self, max_attempts=5):
+    def step_close_result(self, max_attempts=None):
         self.log('关闭结算面板...')
+        if max_attempts is None:
+            max_attempts = self.config['battle']['max_attempts_close_result']
         for attempt in range(max_attempts):
             if self._stop:
                 return False
@@ -2178,18 +2173,14 @@ class AFKBot:
         # 使用图片尺寸（不是窗口尺寸）
         w, h = img.width, img.height
         arr = np.array(img.convert('RGB'))
-        # 采样 20 个点：左上/右上/左下/右下/中心
+        # 采样 10 个点：左上/右上/左下/右下/中心等
         sample_pts = [
             (h // 4, w // 4), (h // 4, 3 * w // 4),
             (3 * h // 4, w // 4), (3 * h // 4, 3 * w // 4),
             (h // 2, w // 2),
             (h // 3, w // 3), (h // 3, 2 * w // 3),
             (2 * h // 3, w // 3), (2 * h // 3, 2 * w // 3),
-            (h // 5, w // 5), (h // 5, 4 * w // 5),
-            (4 * h // 5, w // 5), (4 * h // 5, 4 * w // 5),
-            (h // 6, w // 2), (5 * h // 6, w // 2),
-            (h // 2, w // 6), (h // 2, 5 * w // 6),
-            (h // 4, w // 2), (3 * h // 4, w // 2),
+            (h // 5, w // 5),
         ]
         pixels = tuple(tuple(arr[y, x].tolist()) for y, x in sample_pts)
         return hash(pixels)
