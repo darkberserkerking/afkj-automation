@@ -1,4 +1,4 @@
-VERSION = 'v0.7.3'
+VERSION = 'v0.8'
 
 f"""
 AFK Journey 自动化工具 {VERSION} — 状态机导航架构
@@ -148,7 +148,7 @@ class OCRMemory:
                     note=strat.get('note', ''),
                 )
         except Exception as e:
-            pass  # 加载失败静默忽略
+            print(f"[WARN] OCR记忆加载失败: {e}")
 
     def _save(self):
         """保存记忆到文件"""
@@ -159,7 +159,7 @@ class OCRMemory:
             with open(self.cache_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            pass  # 保存失败静默忽略
+            print(f"[WARN] OCR记忆保存失败: {e}")
 
     def remember(self, scene: str, keyword: str, strategy: OCRStrategy):
         """记住成功的策略"""
@@ -697,7 +697,12 @@ class AFKBot:
         self.log('[OCR Memory] 已加载 ' + str(len(self._ocr_memory.memory)) + ' 条记忆')
 
         # 加载配置文件
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'afkj_config.json')
+        # PyInstaller 下 __file__ 指向临时解压目录，用 sys.executable 定位 exe 所在目录
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(base_dir, 'afkj_config.json')
         self.config = self._load_config()
 
     def _load_config(self):
@@ -713,7 +718,9 @@ class AFKBot:
                 "min_duration": 30,
                 "ocr_interval_initial": 1,
                 "ocr_interval_stable": 3,
-                "max_diff": 10
+                "max_diff": 10,
+                "max_iter_navigate": 40,
+                "max_attempts_close_result": 5
             }
         }
         try:
@@ -727,7 +734,7 @@ class AFKBot:
                     else:
                         default_config[section] = user_config[section]
         except Exception as e:
-            print(f'配置文件加载失败，使用默认配置: {e}')
+            self.log(f'配置文件加载失败，使用默认配置: {e}')
         # 如果配置文件不存在，保存默认配置
         if not os.path.exists(self.config_file):
             self.config = default_config
@@ -740,7 +747,7 @@ class AFKBot:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f'保存配置失败: {e}')
+            self.log(f'保存配置失败: {e}')
 
 
     def click_template(self, name, conf=0.8, label=''):
@@ -839,8 +846,8 @@ class AFKBot:
                     l, t, r, b = win32gui.GetWindowRect(h)
                     if r - l > 50 and b - t > 50:
                         return h
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log(f"[WARN] find_and_focus ShowWindow失败: {e}")
                 time.sleep(2)
             else:
                 self.log(f'  等待游戏窗口... ({attempt+1}/5)')
@@ -889,8 +896,8 @@ class AFKBot:
             img, _, _, _, _ = self._snap()
             img.save(filepath)
             self.log(f'  [截图] {filepath}')
-        except Exception:
-            pass
+        except Exception as e:
+            self.log(f"[WARN] 调试截图失败: {e}")
 
     def _activate_window(self):
         """激活游戏窗口到前台（操作前必须调用）"""
@@ -908,8 +915,8 @@ class AFKBot:
             else:
                 win32gui.SetForegroundWindow(self._hwnd)
             time.sleep(0.1)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log(f"[WARN] 激活窗口失败: {e}")
 
     # ── 点击 & 按键 ────────────────────────────────────────────────
 
@@ -1290,6 +1297,31 @@ class AFKBot:
 
     # ── 导航（MaaFramework Pipeline 风格）──────────────────────────
 
+    def _ocr_and_click_for_navigate(self, target_text, tmpl_name=None, y_min_ratio=None, max_retries=3):
+        """OCR 找到文字并点击，返回是否成功（用于导航场景）"""
+        if self._stop:
+            return False
+        for attempt in range(1, max_retries + 1):
+            pos = self._ocr_memory.find_text_with_memory(
+                self, target_text, scene='navigate', exact=False, y_min_ratio=y_min_ratio
+            )
+            if pos:
+                self.log(f'点击[{attempt}]: {target_text} → OCR({pos[0]:.0f},{pos[1]:.0f})')
+                self.click_at(pos[0], pos[1], target_text)
+                time.sleep(1.5)
+                return True
+            if attempt < max_retries:
+                self.log(f'  ⚠ [{attempt}] OCR 未找到"{target_text}"，1秒后重试...')
+                time.sleep(1)
+                continue
+            if tmpl_name:
+                self.log(f'  ⚠ [{attempt}] OCR 未找到"{target_text}"，尝试模板 [{tmpl_name}]...')
+                if self.click_template(tmpl_name, label=f'{target_text} [模板]'):
+                    time.sleep(1.5)
+                    return True
+            self.log(f'  ⚠ OCR+模板 均未找到: {target_text}')
+        return False
+
     def navigate_to_idle_stage(self):
         """导航到挂机推图主界面（状态机驱动）
 
@@ -1312,31 +1344,6 @@ class AFKBot:
         max_iter = battle_cfg['max_iter_navigate']
         no_progress = 0
         last_phase = None
-
-        def ocr_and_click(target_text, tmpl_name=None, y_min_ratio=None, max_retries=3):
-            """OCR 找到文字并点击，返回是否成功"""
-            if self._stop:
-                return False
-            for attempt in range(1, max_retries + 1):
-                pos = self._ocr_memory.find_text_with_memory(
-                    self, target_text, scene='navigate', exact=False, y_min_ratio=y_min_ratio
-                )
-                if pos:
-                    self.log(f'点击[{attempt}]: {target_text} → OCR({pos[0]:.0f},{pos[1]:.0f})')
-                    self.click_at(pos[0], pos[1], target_text)
-                    time.sleep(1.5)
-                    return True
-                if attempt < max_retries:
-                    self.log(f'  ⚠ [{attempt}] OCR 未找到"{target_text}"，1秒后重试...')
-                    time.sleep(1)
-                    continue
-                if tmpl_name:
-                    self.log(f'  ⚠ [{attempt}] OCR 未找到"{target_text}"，尝试模板 [{tmpl_name}]...')
-                    if self.click_template(tmpl_name, label=f'{target_text} [模板]'):
-                        time.sleep(1.5)
-                        return True
-                self.log(f'  ⚠ OCR+模板 均未找到: {target_text}')
-            return False
 
         def is_target():
             """检查是否已在目标界面（幻灵挑战/挑战 可见）"""
@@ -1380,7 +1387,7 @@ class AFKBot:
             # ── 主城界面（town）：点"玩法目录" ──
             if phase == 'town':
                 self.log('在主城界面，点"玩法目录"')
-                if ocr_and_click('玩法目录', tmpl_name='wanfa', y_min_ratio=0.2):
+                if self._ocr_and_click_for_navigate('玩法目录', tmpl_name='wanfa', y_min_ratio=0.2):
                     time.sleep(1)
                     continue
                 self._send_esc()
@@ -1399,7 +1406,7 @@ class AFKBot:
             # ── 玩法目录（playbook）：点"挂机关卡" ──
             if phase == 'playbook':
                 self.log('在玩法目录，点"挂机关卡"')
-                if ocr_and_click('挂机关卡', y_min_ratio=0.2):
+                if self._ocr_and_click_for_navigate('挂机关卡', y_min_ratio=0.2):
                     time.sleep(1)
                     continue
                 self._send_esc()
@@ -1418,7 +1425,7 @@ class AFKBot:
             # ── 活动菜单（activity）：点"常规玩法" ──
             if phase == 'activity':
                 self.log('在活动菜单，点"常规玩法"')
-                if ocr_and_click('常规玩法', tmpl_name='normal', y_min_ratio=0.2):
+                if self._ocr_and_click_for_navigate('常规玩法', tmpl_name='normal', y_min_ratio=0.2):
                     time.sleep(1)
                     continue
                 self._send_esc()
@@ -2761,8 +2768,8 @@ class AFKBot:
                 try:
                     self.esc_to_main_screen()
                     time.sleep(1)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.log(f"[WARN] esc_to_main_screen失败: {e}")
 
         self.log(f'\n{"="*50}')
         self.log(f'已停止  共 {round_count} 轮')
@@ -3294,8 +3301,8 @@ class App(ctk.CTk):
         try:
             ts = time.strftime('%Y-%m-%d %H:%M:%S')
             self._log_file.write(f'[{ts}] {msg}\n')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] 日志文件写入失败: {e}")
 
     def _start_flush_timer(self):
         """启动日志+状态批量刷新定时器（每200ms一次）"""
@@ -3352,8 +3359,8 @@ class App(ctk.CTk):
             # 状态只刷新最后一次（避免多次调用导致GUI抖动）
             if latest_status is not None:
                 self._refresh_ui(latest_status)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] _flush失败: {e}")
         self._flush_id = self.after(200, self._flush)
 
     def _refresh_timer(self):
@@ -3394,8 +3401,8 @@ class App(ctk.CTk):
             else:
                 timer_txt = f'⏱ {total_txt}'
             self._lbl_timer.configure(text=timer_txt)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] _refresh_timer失败: {e}")
         self._timer_id = self.after(1000, self._refresh_timer)
 
     # ────────────────────────────────────────────────────────────────
@@ -3514,7 +3521,6 @@ class App(ctk.CTk):
     # ────────────────────────────────────────────────────────────────
 
     def _on_start(self):
-        print(f'[DEBUG F11] _running={self._running}')
         if self._running:
             self._append_log('[F11] 已在运行中')
             return
@@ -3574,7 +3580,6 @@ class App(ctk.CTk):
         self.after(0, _reset_buttons)
 
     def _on_pause(self):
-        print(f'[DEBUG F10] _running={self._running} _bot={self._bot} _paused={self._paused}')
         if not self._bot:
             self._append_log('[F10] 脚本未运行')
             return
@@ -3603,8 +3608,8 @@ class App(ctk.CTk):
             self._bot.stop()
         try:
             self._log_file.close()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] 关闭日志文件失败: {e}")
         time.sleep(0.3)
         self.destroy()
 
