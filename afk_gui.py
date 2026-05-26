@@ -907,11 +907,11 @@ class AFKBot:
             time.sleep(0.05)
             # 再置前台（带 AttachThreadInput 解决焦点抢占问题）
             thread_id = win32api.GetCurrentThreadId()
-            _, proc_id = win32process.GetWindowThreadProcessId(self._hwnd)
-            if thread_id != proc_id:
-                win32process.AttachThreadInput(thread_id, proc_id, True)
+            target_thread_id, _ = win32process.GetWindowThreadProcessId(self._hwnd)
+            if thread_id != target_thread_id:
+                win32process.AttachThreadInput(thread_id, target_thread_id, True)
                 win32gui.SetForegroundWindow(self._hwnd)
-                win32process.AttachThreadInput(thread_id, proc_id, False)
+                win32process.AttachThreadInput(thread_id, target_thread_id, False)
             else:
                 win32gui.SetForegroundWindow(self._hwnd)
             time.sleep(0.1)
