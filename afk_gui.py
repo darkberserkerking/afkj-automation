@@ -2099,6 +2099,10 @@ class AFKBot:
                     continue
                 # 既没战斗也没结算，可能画面异常，继续等待
                 self._debug_screenshot('battle_end_uncertain')
+                # 检查是否已回到主界面（用户手动跳过了结算）
+                if any('幻灵挑战' in t for t in texts2) or any(t == '挑战' for t in texts2):
+                    self.log('✓ 确认战斗结束（已回到主界面）')
+                    return 'done'
                 self.log('⚠ 战斗状态不确定，继续等待...')
                 # 不确定时不返回done，重置计数避免立即再次触发
                 miss_count = 0
