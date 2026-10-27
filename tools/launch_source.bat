@@ -25,8 +25,22 @@ if not errorlevel 1 goto launch
 
 echo [%DATE% %TIME%] requesting elevation>>"%LOG%"
 echo Requesting administrator privileges...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-exit /b
+rem  capture stdout+stderr to the log so a failure is never silent.
+rem  -Wait: wait for the elevated instance to finish launching.
+rem  try/catch: if UAC is cancelled we must NOT die - fall back to a
+rem  normal (non-admin) launch so the app always opens.
+echo [%DATE% %TIME%] cmd: elevate via Start-Process -Verb RunAs -Wait>>"%LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -Wait -ErrorAction Stop; exit 0 } catch { Write-Output ('ELEVATE-ERROR: ' + $_.Exception.Message); exit 1 }" >>"%LOG%" 2>&1
+if not errorlevel 1 (
+    echo [%DATE% %TIME%] elevation ok - elevated instance handles launch>>"%LOG%"
+    exit /b
+)
+echo [%DATE% %TIME%] elevation FAILED/CANCELLED - fallback to normal launch>>"%LOG%"
+echo.
+echo [!] Elevation failed or was cancelled - starting WITHOUT admin.
+echo [!] Game control may not work. Details: %LOG%
+echo.
+goto launch
 
 :launch
 echo [%DATE% %TIME%] launching (elevated-flag=%AFKJ_ELEVATED%)>>"%LOG%"
