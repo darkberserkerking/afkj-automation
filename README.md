@@ -58,24 +58,64 @@ model/ocr/
 
 ## 自动更新
 
-程序启动 3 秒后会自动检查 GitHub 最新版本，也可在 **设置抽屉 → 关于** 里手动点「🔄 检查更新」。
+程序启动 3 秒后会**静默检查** GitHub 最新版本；也可在 **设置抽屉 → 关于** 里手动点「🔄 检查更新」。
+发现新版本时会出现「⬇️ 立即更新」，下载完成后自动替换并重启。
 
-- **打包 exe**：发现新版本 → 点「⬇️ 立即更新」→ 下载后自动替换并重启
-  （替换由临时 `.bat` 完成：等进程退出 → `move /y` 覆盖 → 重启 → 自删）
-- **源码运行**：提示用 `git pull` 更新（自动替换仅对 exe 生效）
-- **私密仓库需要 Token**（GitHub API 限制），二选一：
-  1. 环境变量 `AFKJ_GH_TOKEN=<token>`
-  2. 程序目录放 `github_token.txt`，内容为一行 Token
+| 运行方式 | 更新行为 |
+|---|---|
+| **打包 exe** | 下载 Release 附件 → 生成临时 `.bat`：等进程退出 → `move /y` 覆盖 → 重启 → 自删 |
+| **源码运行** | 提示用 `git pull`（自动替换只对 exe 生效） |
 
-命令行检查：
+命令行：
 
 ```bash
 python -m afk_bot.updater --check    # 只看有没有新版
 python -m afk_bot.updater --update   # 下载并安装（仅 exe 模式）
 ```
 
-> 发布新版本：网页 → **Releases** → Draft a new release → Tag 填 `vX.Y.Z` →
-> 上传 `dist\AFKJ自动化工具vX.Y.Z.exe` → Publish。程序按 `tag_name` 比较版本。
+### 发布新版本（维护者）
+
+1. 打包：`pyinstaller AFKJ自动化工具.spec`，产物在 `dist/`
+2. 网页 → **Releases** → **Draft a new release**
+3. **Tag** 填 `vX.Y.Z`（必须与 `afk_bot/config.py` 的 `VERSION` 一致）
+4. 上传 `dist\AFKJ自动化工具vX.Y.Z.exe` 作为附件 → **Publish**
+
+程序按 Release 的 `tag_name` 与本地 `VERSION` 比较（语义版本，支持 `v2.2.20` 这类格式）。
+> Release 附件上限 **2GB**，所以 130MB+ 的 exe 放这里没问题（仓库本身有 100MB 单文件限制）。
+
+### 私密仓库需要 Token
+
+GitHub API 对私密仓库要求鉴权。**公开仓库可跳过本节**。
+
+**① 生成 Token**
+
+1. 右上角头像 → **Settings** → 左侧最下方 **Developer settings**
+2. **Personal access tokens** → **Fine-grained tokens** → **Generate new token**
+3. 填写：Token name（随便，如 `afkj-updater`）、Expiration（按需，可 1 年）
+4. **Repository access** → **Only select repositories** → 勾选本仓库
+5. **Permissions** → **Repository permissions** → **Contents** 设为 **Read-only**
+   （`Metadata` 会自动带上，无需改）
+6. **Generate token** → 复制 `github_pat_...`（**只显示一次**）
+
+**② 配置（二选一）**
+
+```bat
+:: 方式 A：环境变量（永久写入当前用户）
+setx AFKJ_GH_TOKEN "github_pat_xxxxxxxx"
+```
+
+> ⚠️ `setx` 只对**之后新启动的进程**生效 —— 设置完请**关掉并重新打开工具**
+> （验证：新开一个 cmd 执行 `echo %AFKJ_GH_TOKEN%`，能打印出来就对了）
+
+**方式 B：文件（更简单，不用改环境）**
+
+在本程序所在目录（如 `D://桌面`）新建 `github_token.txt`，内容就是一行 Token：
+
+```
+github_pat_xxxxxxxx
+```
+
+> `github_token.txt` 已在 `.gitignore` 中，**不会被提交** ✓
 
 ## 测试
 
