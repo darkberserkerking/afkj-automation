@@ -18,6 +18,11 @@ pip install customtkinter opencv-python onnxruntime Pillow pywin32 keyboard
 
 ## 快速开始
 
+> **一键启动（源码版）**：双击 `tools/launch_source.bat`（或桌面上的同名快捷方式）
+> —— 用 `pythonw` 免控制台启动，更新走 `git pull`。
+
+
+
 ```bash
 python afk_gui.py
 ```
