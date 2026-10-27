@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -278,6 +279,14 @@ def download_asset(
     req = urllib.request.Request(info.asset_url, headers=_headers(tok))
     total = info.size or 0
     done = 0
+    # v2.2.30：停滞看门狗 + 总时长上限
+    #   实测：某些网络/代理会在下到几 MB 后**卡死不动**（既不报错也不结束）✗
+    #   → 没有看门狗的话，更新器会**永远挂住** ✗
+    stall_limit = 20.0        # 连续多少秒没收到新数据 → 判定卡死
+    total_limit = 1800.0      # 单次下载总时长上限（30 分钟）
+    t_start = time.time()
+    t_last = t_start
+    last_size = 0
     try:
         with urllib.request.urlopen(req, timeout=timeout,
                                     context=_SSL_CTX) as resp, \
@@ -288,6 +297,19 @@ def download_asset(
                     break
                 fh.write(chunk)
                 done += len(chunk)
+                now = time.time()
+                if done != last_size:
+                    last_size = done
+                    t_last = now
+                elif now - t_last > stall_limit:
+                    raise UpdateError(
+                        f'下载停滞：{stall_limit:.0f}s 未收到新数据'
+                        f'（已下 {done}/{total} 字节）'
+                        f'—— 可能是网络/代理限制，建议换网络或重试')
+                if now - t_start > total_limit:
+                    raise UpdateError(
+                        f'下载超时：超过 {total_limit / 60:.0f} 分钟'
+                        f'（已下 {done}/{total} 字节）')
                 if progress:
                     try:
                         progress(done, total)
