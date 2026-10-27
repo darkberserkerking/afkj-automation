@@ -41,3 +41,7 @@ _update_check.log
 # ── 启动器构建产物 ──
 dist_launcher/
 build_launcher/
+
+# ── 临时测试脚本 ──
+_test_updater_e2e.py
+dist_swap_test/

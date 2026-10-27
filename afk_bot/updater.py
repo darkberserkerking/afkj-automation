@@ -21,7 +21,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -247,24 +246,62 @@ def download_asset(
         progress: 可选回调 (已下载字节, 总字节)；总字节未知时为 0
     """
     tok = resolve_token(token)
-    _fetch = fetch or _default_fetch
     dest_dir = Path(dest_dir or tempfile.mkdtemp(prefix='afkj_upd_'))
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / (info.asset_name or 'afkj_update.exe')
+
+    # 注入的假 fetch（单测用）：一次拿全量
+    if fetch is not None:
+        try:
+            data = fetch(info.asset_url, tok, timeout)
+        except urllib.error.HTTPError as e:
+            raise UpdateError(f'下载失败：HTTP {e.code}') from e
+        except Exception as e:
+            raise UpdateError(f'下载失败：{e}') from e
+        if not data:
+            raise UpdateError('下载失败：空文件')
+        if progress:
+            try:
+                progress(len(data), len(data))
+            except Exception:
+                pass
+        dest.write_bytes(data)
+        return dest
+
+    # 真实下载：**流式分块**（v2.2.30 修复）
+    # ⚠️ 旧实现用 urlopen(...).read() 一次性读完 + timeout=60s 是**整块**限制 →
+    #    136MB 安装包在慢网/代理下必然 TimeoutError ✗（真机测试 2026-10-27 复现）
+    #    改为 256KB 分块读：timeout 只约束"单次读取"，慢网也能下完 ✓
+    global _SSL_CTX
+    if _SSL_CTX is None:
+        _SSL_CTX = _ssl_context()
+    req = urllib.request.Request(info.asset_url, headers=_headers(tok))
+    total = info.size or 0
+    done = 0
     try:
-        data = _fetch(info.asset_url, tok, timeout)
+        with urllib.request.urlopen(req, timeout=timeout,
+                                    context=_SSL_CTX) as resp, \
+                open(dest, 'wb') as fh:
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                if progress:
+                    try:
+                        progress(done, total)
+                    except Exception:
+                        pass
     except urllib.error.HTTPError as e:
         raise UpdateError(f'下载失败：HTTP {e.code}') from e
     except Exception as e:
         raise UpdateError(f'下载失败：{e}') from e
-    if not data:
+
+    if done == 0:
         raise UpdateError('下载失败：空文件')
-    if progress:
-        try:
-            progress(len(data), len(data))
-        except Exception:
-            pass
-    dest.write_bytes(data)
+    if total and done != total:
+        raise UpdateError(f'下载不完整：{done}/{total} 字节')
     return dest
 
 
