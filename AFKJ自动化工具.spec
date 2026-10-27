@@ -20,7 +20,7 @@ _a = Analysis(
         ('task_registry.py', '.'),     # 任务注册表
         ('tasks', 'tasks'),            # 任务模块目录
         ('afk_bot', 'afk_bot'),        # afk_bot 包（infra/services/auto_farm 三层）
-        # v2.2.23：显式打包 CA 证书 —— 否则 exe 里 HTTPS 报
+        # v2.2.24：显式打包 CA 证书 —— 否则 exe 里 HTTPS 报
         # [ASN1: NOT_ENOUGH_DATA]（真机 2026-10-27 实证）
         *([(_CERTIFI_CA, 'certifi')] if _CERTIFI_CA else []),
     ],
@@ -84,7 +84,7 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动化工具v2.2.23',
+    name='AFKJ自动化工具v2.2.24',
     icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,

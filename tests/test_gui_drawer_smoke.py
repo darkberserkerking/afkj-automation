@@ -132,7 +132,11 @@ app.withdraw()
 # ══ 1. 实例清单与渲染顺序（v2.1.0）══════════════════════════
 _ids0 = [i.inst_id for i in TaskRegistry.get_instances()]
 _render_ids = list(app._task_rows.keys())
-check('初始实例齐备（10 个 ready 任务）', len(_ids0) == 10, str(_ids0))
+# v2.2.24：改为**从注册表动态推算**（此前硬编码 10，每加一个任务就误报 ✗）
+from task_registry import TaskRegistry            # noqa: E402
+_ready_n = len([m for m in TaskRegistry.get_all() if m.status == 'ready'])
+check(f'初始实例齐备（{_ready_n} 个 ready 任务）',
+      len(_ids0) == _ready_n, f'{len(_ids0)} vs {_ready_n}')
 check('v2.1.0 GUI 渲染顺序：启动游戏在首、关闭游戏在尾',
       _render_ids[0].startswith('start_game')
       and _render_ids[-1].startswith('close_game'), str(_render_ids))
