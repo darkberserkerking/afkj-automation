@@ -159,6 +159,7 @@ print('── 8. 源码模式（git）──')
 check('8a is_frozen() 在源码环境下为 False', U.is_frozen() is False)
 check('8b repo_root() 指向项目根（含 .git）',
       (U.repo_root() / '.git').exists(), str(U.repo_root()))
+_NET_DOWN = False
 try:
     _src = U.check_source()
     check('8c check_source() 可执行（返回 None=已最新 / info=有更新）',
@@ -171,7 +172,9 @@ try:
     else:
         check('8d 已是最新（无待拉取提交）', True)
 except U.UpdateError as e:
-    check('8c check_source() 不应在项目内报错', False, str(e)[:80])
+    # 网络不可用时 **跳过**（不能把断网当成代码缺陷 ✗）
+    _NET_DOWN = True
+    print(f'[SKIP] 8c 网络不可用，跳过联网断言：{str(e)[:70]}')
 
 # CLI 走源码分支：--check 应返回 0 且提到"源码"
 import io as _io
@@ -180,8 +183,11 @@ _buf = _io.StringIO()
 with _cl.redirect_stdout(_buf):
     _rc = U.main(['--check'])
 _out = _buf.getvalue()
-check('8e CLI --check 在源码模式走 git 分支（不报 Release/Token）',
-      _rc == 0 and ('源码' in _out or '提交' in _out), _out.strip()[:80])
+if _NET_DOWN or '拉取远端失败' in _out:
+    print('[SKIP] 8e 网络不可用，跳过 CLI 联网断言')
+else:
+    check('8e CLI --check 在源码模式走 git 分支（不报 Release/Token）',
+          _rc == 0 and ('源码' in _out or '提交' in _out), _out.strip()[:80])
 
 print()
 print(f'══ 自动更新器：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

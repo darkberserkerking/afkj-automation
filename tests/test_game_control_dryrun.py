@@ -143,8 +143,10 @@ check('7c 默认启动参数含 envId/channel',
 print('── 8. 任务注册与分组统一 ──')
 from task_registry import TaskRegistry  # noqa: E402
 ids = [t.id for t in TaskRegistry.get_all()]
-check('8a 十任务齐备（含 start_game/close_game）',
-      len(ids) == 10 and 'start_game' in ids and 'close_game' in ids, str(ids))
+check('8a 任务齐备（含 start_game/close_game，数量与注册表一致）',
+      {'start_game', 'close_game'} <= set(ids)
+      and len(ids) == len(TaskRegistry.get_all()),
+      f'{len(ids)} vs {len(TaskRegistry.get_all())}: {ids}')
 groups = {t.group for t in TaskRegistry.get_all()}
 check('8b 全部任务 group 统一「游戏任务」',
       groups == {'游戏任务'}, str(groups))

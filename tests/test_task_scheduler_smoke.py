@@ -77,7 +77,7 @@ print("\n── 1. 元数据与多实例 ──")
 check("catalog 注册全部任务类",
       set(TASK_CLASSES) == {'auto_farm', 'labyrinth', 'goddess_trial',
                             'home', 'arena', 'daily_quest', 'friend_gift',
-                            'dream_realm',
+                            'dream_realm', 'guild_battle',
                             'start_game', 'close_game'},
       str(list(TASK_CLASSES)))
 
