@@ -166,19 +166,23 @@ check('2a 剩余 0 → 不点扫荡，直接进挑战', r2 == 'done'
       f'r={r2!r} clicks={[c[2] for c in bot2.clicks][:4]}')
 check('2b 仍然打了一局', t2.battles == 1, f'battles={t2.battles}')
 
-# ── 3. 失败 → 原阵容重试一次 → 再失败 → failed ──
+# ── 3. 【用户 16:52 新口径】连败也继续循环，不主动停 ──
+#   旧实现：2 连败 → failed ✗；现在应一直打到没次数（或到上限/手动停）
 frames3 = (
     [MAIN0]
     + [MAIN0]
-    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第1局 失败 → 再次挑战
-    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 重试 又失败 → 收手
-    + [MAIN_NOBTN]
+    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第1局 失败
+    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第2局 失败（旧实现此处 failed ✗）
+    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第3局 失败（仍然继续 ✓）
+    + [MAIN_NOBTN]                                # 次数用尽 → done
 )
 t3, bot3 = _mk(frames3)
 r3 = t3.run()
-check('3a 连败两次 → failed（原阵容重试一次后收手）', r3 == 'failed', f'r={r3!r}')
-check('3b 战绩 0 胜 2 负', (t3.wins, t3.losses) == (0, 2),
-      f'{t3.wins}胜/{t3.losses}负')
+check('3a 【新口径】连败 3 次仍继续，直到次数用尽才 done（旧实现 2 连败就 failed ✗）',
+      r3 == 'done' and t3.battles == 3 and t3.losses == 3,
+      f'r={r3!r} battles={t3.battles} 负={t3.losses}')
+check('3b 3 局都真的打完了（按了 3 次 F，没有中途收手）',
+      bot3.keys.count('F') == 3, str(bot3.keys))
 
 # ── 4. max_battles=1 → 打完一局就停 ──
 frames4 = (

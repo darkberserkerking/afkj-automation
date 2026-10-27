@@ -75,7 +75,6 @@ class GuildBattleTask(BaseTask):
         self.battles: int = 0          # 实际开打局数
         self.wins: int = 0
         self.losses: int = 0
-        self.retried: bool = False     # 上一次失败是否已重试过（原阵容重试一次）
         self._t0: float = time.time()
 
     # ── 基类契约 ────────────────────────────────────────────
@@ -326,17 +325,12 @@ class GuildBattleTask(BaseTask):
                 win = any('战斗胜利' in t for t in texts)
                 if win:
                     self.wins += 1
-                    self.retried = False
                 else:
+                    # 用户口径（2026-10-27 16:52 更新）：**连续失败也继续循环**，
+                    # 不主动停（原阵容不变）；只由次数/时间上限或手动停止结束。
                     self.losses += 1
-                    # 用户口径（2026-10-27）：失败 → **原阵容重试一次**；
-                    # 连续两次失败即收手（不换阵容、不无限重试）
-                    if self.retried:
-                        self.log("[警告] 连续两次失败（原阵容重试已用完）"
-                                 "→ 结束结社战线")
-                        return 'failed'
-                    self.retried = True
-                    self.log("[信息] 战斗失败 → 原阵容重试一次")
+                    self.log("[信息] 战斗失败 → 原阵容继续下一局"
+                             "（连败也继续，直到次数/时间上限或手动停止）")
                 self.log(f"[结果] 战斗{'胜利' if win else '失败'}"
                          f"（累计 {self.wins}胜/{self.losses}负）")
                 # 实测：结算页只有「再次挑战」(863,967)，**没有**"点击空白处关闭"
