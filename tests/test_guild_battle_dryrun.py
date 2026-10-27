@@ -171,9 +171,12 @@ check('2b 仍然打了一局', t2.battles == 1, f'battles={t2.battles}')
 frames3 = (
     [MAIN0]
     + [MAIN0]
-    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第1局 失败
-    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第2局 失败（旧实现此处 failed ✗）
-    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]   # 第3局 失败（仍然继续 ✓）
+    # 第1局（首次）→ 走 通关阵容 → 一键采用 → F
+    + [READY, READY, POPUP, BATTLE, LOSE_RETRY]
+    # 第2局（上一局失败）→ **直接 F**：循环读备战 + 战斗 + 结算，仅 3 帧 ✓
+    + [READY, BATTLE, LOSE_RETRY]
+    # 第3局（仍失败）→ 同样直接 F
+    + [READY, BATTLE, LOSE_RETRY]
     + [MAIN_NOBTN]                                # 次数用尽 → done
 )
 t3, bot3 = _mk(frames3)
@@ -181,8 +184,13 @@ r3 = t3.run()
 check('3a 【新口径】连败 3 次仍继续，直到次数用尽才 done（旧实现 2 连败就 failed ✗）',
       r3 == 'done' and t3.battles == 3 and t3.losses == 3,
       f'r={r3!r} battles={t3.battles} 负={t3.losses}')
-check('3b 3 局都真的打完了（按了 3 次 F，没有中途收手）',
+check('3b 3 局都打完了（按了 3 次 F）',
       bot3.keys.count('F') == 3, str(bot3.keys))
+check('3c 【本次优化】连败时「通关阵容/一键采用」只点了 **1 次**（仅首次）',
+      sum(1 for c in bot3.clicks if c[2] == '备战_通关阵容') == 1
+      and sum(1 for c in bot3.clicks if c[2] == '备战_一键采用') == 1,
+      f"通关={sum(1 for c in bot3.clicks if c[2]=='备战_通关阵容')} "
+      f"采用={sum(1 for c in bot3.clicks if c[2]=='备战_一键采用')}")
 
 # ── 4. max_battles=1 → 打完一局就停 ──
 frames4 = (

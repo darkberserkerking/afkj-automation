@@ -76,6 +76,11 @@ class GuildBattleTask(BaseTask):
         self.battles: int = 0          # 实际开打局数
         self.wins: int = 0
         self.losses: int = 0
+        # 用户 2026-10-27 17:30 优化：该模式通关概率极低（可能上百次才过一次）
+        #   · 本轮首次进备战 → 通关阵容→一键采用→F
+        #   · **失败**后回备战 → **直接 F**（沿用原阵容，省两次点击）
+        #   · **成功**后 → 重新走 通关阵容→一键采用
+        self._need_lineup: bool = True
         self._t0: float = time.time()
 
     # ── 基类契约 ────────────────────────────────────────────
@@ -260,12 +265,8 @@ class GuildBattleTask(BaseTask):
 
     # ── 备战（每局都走：通关阵容 → 一键采用 → F）────────────
 
-    def _ready_and_fight(self) -> bool:
-        """在当前备战界面完成 '通关阵容 → 一键采用 → F'。
-
-        Returns:
-            True = 已按 F 进入战斗；False = 未能在备战界面完成（交由调用方处理）
-        """
+    def _setup_lineup(self) -> None:
+        """备战界面：通关阵容 → 一键采用（只在"需要重设阵容"时调用）。"""
         # ① 通关阵容
         pos = self._find_exact(self.bot._ocr_screen(), '通关阵容', 0.7)
         if pos:
@@ -278,7 +279,9 @@ class GuildBattleTask(BaseTask):
             self.log(f"[点击] 「一键采用」 | 图像=({pos2[0]},{pos2[1]})")
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
             self._sleep(1.5)
-        # ③ 按 F 开战
+
+    def _press_f(self) -> None:
+        """按 F 开战 + 统计（每局都要走）。"""
         self.log("[信息] 按 F 开始战斗")
         self.bot.press_f('结社战线_按F')
         self._sleep(2.0)
@@ -290,7 +293,6 @@ class GuildBattleTask(BaseTask):
         except Exception:
             pass
         self.battles += 1
-        return True
 
     # ── 主循环（状态机）────────────────────────────────────
 
@@ -326,10 +328,12 @@ class GuildBattleTask(BaseTask):
                 win = any('战斗胜利' in t for t in texts)
                 if win:
                     self.wins += 1
+                    self._need_lineup = True      # 成功后重新设置阵容
                 else:
                     # 用户口径（2026-10-27 16:52 更新）：**连续失败也继续循环**，
                     # 不主动停（原阵容不变）；只由次数/时间上限或手动停止结束。
                     self.losses += 1
+                    self._need_lineup = False     # 失败 → 下一局直接 F
                     self.log("[信息] 战斗失败 → 原阵容继续下一局"
                              "（连败也继续，直到次数/时间上限或手动停止）")
                 self.log(f"[结果] 战斗{'胜利' if win else '失败'}"
@@ -362,8 +366,15 @@ class GuildBattleTask(BaseTask):
                         self.log(f"[警告] 战斗未开始（停在备战）｜候选={self._cands(items)}")
                         return 'failed'
                     continue
-                self.log("[信息] 备战界面（结社战线）")
-                self._ready_and_fight()
+                if self._need_lineup:
+                    self.log("[信息] 备战界面（结社战线）→ 首次/成功后："
+                             "通关阵容 → 一键采用")
+                    self._setup_lineup()
+                    self._need_lineup = False
+                else:
+                    self.log("[信息] 备战界面（结社战线）→ 失败重试："
+                             "**直接按 F**（沿用原阵容）")
+                self._press_f()
                 in_battle = True
                 stall = 0
                 continue
