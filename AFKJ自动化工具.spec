@@ -9,7 +9,11 @@ _a = Analysis(
     datas=[
         ('model/ocr', 'model/ocr'),   # MaaOCR 模型文件（det.onnx + rec.onnx + keys.txt）
         ('maa_ocr.py', '.'),           # MaaOCR 引擎
-        ('_templates', '_templates'),  # 模板匹配图片（btn_*.png 等）
+        ('templates', 'templates'),  # 模板匹配图片（btn_*.png 等）
+
+        ('task_registry.py', '.'),     # 任务注册表
+        ('tasks', 'tasks'),            # 任务模块目录
+        ('afk_bot', 'afk_bot'),        # afk_bot 包（infra/services/auto_farm 三层）
     ],
     hiddenimports=[
         'customtkinter',
@@ -18,6 +22,35 @@ _a = Analysis(
         'shapely',
         'cv2',
         'numpy',
+
+        # afk_bot ① 默认开启层（infra）
+        'afk_bot',
+        'afk_bot.config',
+        'afk_bot.infra.coordinate',
+        'afk_bot.infra.screen',
+        'afk_bot.infra.input',
+        'afk_bot.infra.ocr_memory',
+        'afk_bot.infra.ocr_engine',
+        'afk_bot.infra.stats',
+        # afk_bot ② 全局可用层（services）
+        'afk_bot.services.detector',
+        'afk_bot.services.navigator',
+        # afk_bot ③ 仅自动推图层（auto_farm）
+        'afk_bot.auto_farm.loop',
+        'afk_bot.auto_farm.battle',
+        'afk_bot.auto_farm.formation',
+        # 门面
+        'afk_bot.facade',
+
+        'task_registry',
+        'tasks',
+        'tasks.base',
+        'tasks.scheduler',
+        'tasks.catalog',
+        'tasks.auto_farm',
+        'tasks.labyrinth',
+        'tasks.goddess_trial',
+        'tasks.home_task',
     ],
     hookspath=[],
     hooksconfig={},
@@ -33,6 +66,7 @@ _a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(_a.pure)
 
 exe = EXE(
@@ -41,7 +75,8 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动推图v0.8',
+    name='AFKJ自动化工具v2.2.19',
+    icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -55,5 +90,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,         # 请求管理员权限
-    icon=None,              # TODO: 添加图标
 )

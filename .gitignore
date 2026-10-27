@@ -1,0 +1,31 @@
+# ── 构建/运行产物 ──
+__pycache__/
+*.pyc
+build/
+dist/
+*.log
+_afk_gui_log.txt
+_tmp_*
+stderr.log
+CRASH_REPORT.log
+nul
+
+# ── 本地备份与截图素材（体积大/含历史版本）──
+backup/
+_chevr.png
+
+# ── OCR 模型（41M，建议由使用者自行下载，见 README）──
+model/
+*.onnx
+
+# ── 本机相关配置（含绝对路径/个人环境）──
+game_paths.json
+gui_config.json
+ocr_memory.json
+tasks_enabled.json
+
+# ── 工具内部工作目录（Agent 日志/记忆，非项目内容）──
+.workbuddy/
+
+# ── 其他项目/实验目录 ──
+afk_bot_android/

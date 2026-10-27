@@ -4,13 +4,83 @@
     "threshold": 10,
     "max_recovery_attempts": 3
   },
-  "battle": {
-    "miss_threshold": 3,
-    "min_duration": 30,
-    "ocr_interval_initial": 1,
-    "ocr_interval_stable": 3,
-    "max_diff": 10,
-    "max_iter_navigate": 40,
-    "max_attempts_close_result": 5
+    "battle": {
+        "miss_threshold": 3,
+        "min_duration": 30,
+        "ocr_interval_initial": 1,
+        "ocr_interval_stable": 3,
+        "max_diff": 10,
+        "max_iter_navigate": 40,
+        "max_attempts_close_result": 5
+    },
+    "button_positions": {
+    "landscape": {
+      "challenge": [
+        0.647,
+        0.191
+      ],
+      "huanling": [
+        0.648,
+        0.207
+      ],
+      "options": [
+        0.967,
+        0.947
+      ],
+      "wanfa": [
+        0.297,
+        0.759
+      ],
+      "normal": [
+        0.5,
+        0.3
+      ],
+      "activity": [
+        0.498,
+        0.116
+      ],
+      "gear": [
+        0.717,
+        0.944
+      ],
+      "auto": [
+        0.5,
+        0.38
+      ]
+    },
+    "portrait": {
+      "challenge": [
+        0.75,
+        0.88
+      ],
+      "huanling": [
+        0.25,
+        0.88
+      ],
+      "options": [
+        0.9,
+        0.95
+      ],
+      "wanfa": [
+        0.5,
+        0.85
+      ],
+      "normal": [
+        0.5,
+        0.4
+      ],
+      "activity": [
+        0.5,
+        0.15
+      ],
+      "gear": [
+        0.85,
+        0.95
+      ],
+      "auto": [
+        0.42,
+        0.92
+      ]
+    }
   }
 }
