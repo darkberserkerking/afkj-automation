@@ -87,7 +87,8 @@ class MockBot:
                 return (it[1], it[0])
         return None
 
-    def send_key_f(self):
+    def press_f(self, label=''):
+        """facade 的真实 API 是 press_f（真机 16:38 报 send_key_f 不存在 ✗）"""
         self.keys.append('F')
         return True
 
@@ -205,6 +206,24 @@ check('5c 结算页能认出「再次挑战」（而不是"挑战"）',
 _battle = F('结社战线-第23层', '85秒', '跳过')
 check('5d 战斗页能认出文本「跳过」',
       _g._find_exact(_battle, '跳过', 0.7) is not None)
+
+# ── 6. 【真机回归】公会玩法目录页 ≠ 结社战线主界面 ──
+# 真机 16:39：在公会玩法目录启动 → 该页有「结社战线」卡片 → 旧判据误判"已在
+# 结社战线" → 直接"无挑战→次数用尽→完成" ✗
+GUILD_DIR = F('新锐', '公会征锋', '结社战线', '狩猎悬赏', '沙盘演兵',
+              '常规玩法', '公会玩法', '活动')
+_g6 = GuildBattleTask.__new__(GuildBattleTask)
+check('6a 公会玩法目录页（有"结社战线"卡片）→ 不算主界面',
+      _g6._is_main(GUILD_DIR, [str(x[2]) for x in GUILD_DIR]) is False,
+      '有卡片但无扫荡/挑战按钮 → 必须 False')
+check('6b 真主界面（标题+扫荡/挑战）→ 算主界面',
+      _g6._is_main(MAIN, [str(x[2]) for x in MAIN]) is True)
+# startup_probe 走真实现：公会玩法页 → 不能返回 ready
+t6, _b6 = _mk([GUILD_DIR])
+t6.startup_probe = GuildBattleTask.startup_probe.__get__(t6, GuildBattleTask)
+probe6 = t6.startup_probe()
+check('6c 在公会玩法目录启动 → probe 不返回 ready（会先去导航）',
+      probe6 != 'ready', f'probe={probe6!r}')
 
 print()
 print(f'══ 结社战线干跑：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

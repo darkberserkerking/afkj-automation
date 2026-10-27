@@ -96,7 +96,7 @@ class GuildBattleTask(BaseTask):
     def startup_probe(self) -> str:
         items = self.bot._ocr_screen()
         texts = self._texts(items)
-        if any(w in t for w in _MAIN_WORDS for t in texts):
+        if self._is_main(items, texts):
             self.log("[信息] 启动即在结社战线界面，直接续跑")
             return 'ready'
         if any(w in t for w in _READY_WORDS for t in texts):
@@ -147,6 +147,18 @@ class GuildBattleTask(BaseTask):
                     and any(w in str(it[2]) for w in words)):
                 return (it[1], it[0])
         return None
+
+    def _is_main(self, items: List[Tuple], texts: List[str]) -> bool:
+        """结社战线**主界面**：标题 +（扫荡｜挑战）按钮**同时**存在。
+
+        ⚠️ 真机 2026-10-27 16:39 踩坑：在「公会玩法」目录页启动时，该页也
+        有「结社战线」**卡片**（641,358）→ 仅凭标题会误判"已在结社战线"，
+        直接走"无挑战→次数用尽→完成"✗。故必须同时看到主界面按钮。
+        """
+        if not any('结社战线' in t for t in texts):
+            return False
+        return bool(self._find_exact(items, _SWEEP_WORD, 0.7)
+                    or self._find_exact(items, '挑战', 0.7))
 
     def _cands(self, items: List[Tuple]) -> str:
         """诊断：打印范围内候选项（找不到按钮时附带证据）。"""
@@ -268,7 +280,7 @@ class GuildBattleTask(BaseTask):
             self._sleep(1.5)
         # ③ 按 F 开战
         self.log("[信息] 按 F 开始战斗")
-        self.bot.send_key_f()
+        self.bot.press_f('结社战线_按F')
         self._sleep(2.0)
         # turns 是 BaseTask 的**只读属性**（由 stats['total_battles'] 推算）→
         # 必须递增统计值，不能直接给 turns 赋值
@@ -361,8 +373,8 @@ class GuildBattleTask(BaseTask):
                 stall = 0
                 continue
 
-            # ③ 结社战线主界面：点「挑战」
-            if any(w in t for t in texts for w in _MAIN_WORDS):
+            # ③ 结社战线主界面：点「挑战」（标题+按钮双判据，避免撞公会玩法目录）
+            if self._is_main(items, texts):
                 pos = self._find_any(items, _BATTLE_WORDS, min_conf=0.7)
                 if pos:
                     self.log(f"[点击] 「挑战」 | 图像=({pos[0]},{pos[1]})")
