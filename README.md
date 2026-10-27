@@ -10,6 +10,7 @@ _✨ 剑与远征：启程 的 Windows 桌面前台自动化助手 ✨_
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/darkberserkerking/afkj-automation?display_name=tag)](https://github.com/darkberserkerking/afkj-automation/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/darkberserkerking/afkj-automation)](https://github.com/darkberserkerking/afkj-automation/commits/main)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 [下载最新版](https://github.com/darkberserkerking/afkj-automation/releases) · [使用说明](docs/客户使用说明.md) · [开发手册](docs/开发指导手册.md)
 
@@ -129,6 +130,28 @@ python tests/run_tests.py --level 3 --jobs 4   # 全量（约 2.5 分钟）
 - [MaaFramework](https://github.com/MaaXYZ/MaaFramework) / [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights) —— 架构与判据思路的启蒙
 - [MaaEnd](https://github.com/MaaEnd/MaaEnd) —— 界面风格参考
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) —— OCR 模型来源
+
+## 📄 许可证
+
+本项目采用 **[GNU AGPL-3.0](LICENSE)** 许可证。
+
+- ✅ 可以自由使用、修改、分发（包括商用）
+- ⚠️ **修改后必须同样以 AGPL-3.0 开源**（包括通过网络提供服务的情形）
+- ⚠️ 必须保留版权声明与许可证文本
+
+```
+Copyright (C) 2026  darkberserkerking
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+```
 
 ## ⚠️ 声明
 
