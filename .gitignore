@@ -14,9 +14,9 @@ nul
 backup/
 _chevr.png
 
-# ── OCR 模型（41M，建议由使用者自行下载，见 README）──
-model/
-*.onnx
+# ── OCR 模型：**纳入仓库**（41M，让仓库开箱即用）──
+# 仅排除历史旧模型备份
+model/ocr/backup_old/
 
 # ── 本机相关配置（含绝对路径/个人环境）──
 game_paths.json
