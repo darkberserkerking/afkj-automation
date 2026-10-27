@@ -23,8 +23,6 @@ import time
 from typing import List, Optional, Tuple
 
 from tasks.base import BaseTask
-from tasks.labyrinth import (      # noqa: E402  复用"跳过"按钮模板
-    _SKIP_BTN_SCALE_RANGE, _SKIP_BTN_TPL, _SKIP_BTN_THRESHOLD)
 from task_registry import TaskMeta, TaskRegistry
 
 task_id = "guild_battle"
@@ -33,11 +31,21 @@ description = "扫荡 + 循环挑战（通关阵容/一键采用/F）；失败�
 
 # ── 判据 ────────────────────────────────────────────────────
 _STALL_MAX: int = 12          # 未知画面连续帧兜底
-_MAIN_WORDS: Tuple[str, ...] = ('结社战线',)          # 主界面标题
-_BATTLE_WORDS: Tuple[str, ...] = ('挑战',)            # 主界面大按钮
-_SWEEP_WORD: str = '扫荡'                             # **全等**匹配
+# 以下判据全部来自用户实拍截图 OCR（C://Users//x9502//Pictures//Screenshots//结社战线）
+#  · 主界面   ：「结社战线」(464,36) +「扫荡」(464,951) +「今日剩余：N」(463,982)
+#               +「挑战」(917,961)；另有「关卡扫荡奖励（…」含"扫荡"字样
+#  · 备战     ：「通关阵容」(285,972) +「战斗」(942,945) +「F」(940,971)
+#  · 阵容弹窗 ：「一键采用」(694,852) +「点击空白处关闭」(639,965)
+#  · 战斗     ：「跳过」(886,832) +「结社战线-第N层」(648,34)
+#  · 结算     ：「战斗失败/胜利」+「**再次挑战**」(863,967)（**没有**点空白）
+_MAIN_WORDS: Tuple[str, ...] = ('结社战线',)          # 主界面标题（备战/战斗也有"-第N层"）
+_BATTLE_WORDS: Tuple[str, ...] = ('挑战',)            # 主界面大按钮（**全等**，避免"自动挑战"）
+_SWEEP_WORD: str = '扫荡'                             # **全等**匹配（避开"关卡扫荡奖励"）
+_SWEEP_LEFT_KW: str = '今日剩余'                       # 「今日剩余：0」→ 无次数，跳过扫荡
 _READY_WORDS: Tuple[str, ...] = ('通关阵容', '编队', '一键采用')
 _RESULT_WORDS: Tuple[str, ...] = ('战斗胜利', '战斗失败')
+_RETRY_WORD: str = '再次挑战'                          # 结算页唯一按钮
+_SKIP_WORD: str = '跳过'                               # 战斗页文本按钮（比模板可靠）
 
 
 class GuildBattleTask(BaseTask):
@@ -185,14 +193,14 @@ class GuildBattleTask(BaseTask):
         return False
 
     def _navigate_in(self) -> bool:
-        """玩法目录 → 工会玩法 → 结社战线。"""
+        """玩法目录 →（页签）公会玩法 → 结社战线。"""
         from tasks.global_nav import GlobalNavigator
         nav = GlobalNavigator(self.bot, logger=self.log,
                               stop_check=self.check_stop)
         if not nav.navigate_to('playbook'):
             self._nav_last_screen = getattr(nav, 'last_screen', '')
             return False
-        if not self._click_card('工会玩法', '玩法目录_工会玩法'):
+        if not self._click_card('公会玩法', '玩法目录_公会玩法'):
             return False
         if not self._click_card('结社战线', '工会玩法_结社战线'):
             return False
@@ -202,10 +210,18 @@ class GuildBattleTask(BaseTask):
     # ── 扫荡（参考女神试炼：全等匹配 + 无次数即跳过）─────────
 
     def _sweep(self) -> None:
+        # 实测（截图 主界面.png）：「扫荡」(464,951) 下方有「今日剩余：N」(463,982)
+        # → N=0 直接跳过（用户口径"若无次数则跳过"），不点按钮避免多余弹窗
+        items0 = self.bot._ocr_screen()
+        for t in self._texts(items0):
+            _t = str(t).replace('：', ':').replace(' ', '')
+            if _SWEEP_LEFT_KW in _t and _t.rstrip('次').endswith(':0'):
+                self.log(f"[信息] 扫荡无次数（{t}）→ 跳过扫荡")
+                return
+        items = items0
         for _ in range(3):
             if self.check_stop():
                 return
-            items = self.bot._ocr_screen()
             pos = self._find_exact(items, _SWEEP_WORD, min_conf=0.7)
             if not pos:
                 self.log("[信息] 主界面无「扫荡」按钮（可能无次数）→ 跳过扫荡")
@@ -269,6 +285,7 @@ class GuildBattleTask(BaseTask):
     def _play_loop(self) -> str:
         stall: int = 0
         in_battle: bool = False
+        battle_wait: int = 0      # 战斗中无判据词的等待计数（不参与 stall 失败判定）
         while True:
             if self.check_stop():
                 return self._stop_result()
@@ -281,7 +298,18 @@ class GuildBattleTask(BaseTask):
             items = self.bot._ocr_screen()
             texts = self._texts(items)
 
-            # ① 战斗结算页：胜利/失败 + 点空白关闭（有「跳过」先点跳过）
+            # ⓪ 战斗进行中：实测战斗页有文本「跳过」(886,832) → 点它直接结算；
+            #    没有「跳过」时（按钮可能隐藏）**耐心等待**，不计入 stall
+            _skip = self._find_exact(items, _SKIP_WORD, 0.7)
+            if _skip:
+                self.log(f"[点击] 「跳过」 | 图像=({_skip[0]},{_skip[1]})")
+                self.bot.click_at(_skip[0], _skip[1], '结社战线_跳过')
+                in_battle = True
+                stall = 0
+                self._sleep(1.5)
+                continue
+
+            # ① 战斗结算页：胜/负 → 点「**再次挑战**」（实测结算页没有"点空白"）
             if any(w in t for t in texts for w in _RESULT_WORDS):
                 win = any('战斗胜利' in t for t in texts)
                 if win:
@@ -299,16 +327,20 @@ class GuildBattleTask(BaseTask):
                     self.log("[信息] 战斗失败 → 原阵容重试一次")
                 self.log(f"[结果] 战斗{'胜利' if win else '失败'}"
                          f"（累计 {self.wins}胜/{self.losses}负）")
-                skip = self.bot.template_match(
-                    _SKIP_BTN_TPL, threshold=_SKIP_BTN_THRESHOLD,
-                    silent=True, scale_range=_SKIP_BTN_SCALE_RANGE)
-                if skip:
-                    self.log(f"[点击] 跳过（模板） | 屏幕=({skip[0]},{skip[1]})")
-                    self.bot._click_abs(skip[0], skip[1])
+                # 实测：结算页只有「再次挑战」(863,967)，**没有**"点击空白处关闭"
+                pos_retry = self._find_exact(items, _RETRY_WORD, 0.7)
+                if pos_retry:
+                    self.log(f"[点击] 「再次挑战」 | 图像=({pos_retry[0]},{pos_retry[1]})")
+                    self.bot.click_at(pos_retry[0], pos_retry[1],
+                                      '结社战线_再次挑战')
+                    self._sleep(2.0)
+                else:
+                    # 没有「再次挑战」= 次数用尽 → 点空白退出结算
+                    self.log("[信息] 结算页无「再次挑战」（次数可能用尽）→ 关闭结算")
+                    self.dismiss_blink_popup(items)
                     self._sleep(1.2)
-                self.dismiss_blink_popup(items)
-                self._sleep(1.2)
                 in_battle = False
+                battle_wait = 0
                 stall = 0
                 continue
 
@@ -352,6 +384,16 @@ class GuildBattleTask(BaseTask):
                 continue
 
             # ⑤ 未知画面
+            if in_battle:
+                # 战斗中（无判据词很正常）→ 耐心等待，最长 ~90s
+                battle_wait += 1
+                if battle_wait % 10 == 0:
+                    self.log(f"[信息] 战斗中…（约 {battle_wait * 1.5:.0f}s）")
+                if battle_wait >= 60:
+                    self.log("[警告] 战斗超过 90s 仍未结算 → 终止")
+                    return 'failed'
+                self._sleep(1.5)
+                continue
             stall += 1
             self.log(f"[信息] 结社战线：未知画面（等待 {stall}/{_STALL_MAX}）")
             if stall >= _STALL_MAX:
