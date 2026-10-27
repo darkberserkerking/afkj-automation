@@ -75,6 +75,12 @@ _HG_REGION_RY_MAX: float = 0.99
 # 真机实测参照：x2 在图像 (1085,787)，沙漏按钮在其下方 30px 内。
 _HG_ANCHOR_MAX_DIST = 260
 _HG_NO_PROGRESS_MAX = 5   # 一次都没成功时，连续被吞到这个数就停手（防死点）
+# v2.2.22（用户 10-27 规则）：**只要显示 xN 就是免费**（不同 VIP 免费次数不同，
+# 基础 2 次）；只有显示 **50/100/…（纯数字定价）** 才是"要花钻石" → 才停手。
+# 故"纯数字"候选须 ≥ 该阈值才算定价（xN 的值带 x 前缀，不会误判）。
+_HG_PRICE_MIN: int = 10
+# 点击次数硬上限（防读数异常时死点；正常远小于它）
+_HG_SAFETY_CLICKS: int = 20
 
 
 class AutoFarmTask(BaseTask):
@@ -245,7 +251,8 @@ class AutoFarmTask(BaseTask):
                 m = re.fullmatch(r"[xX×](\d{1,2})", _n)
                 if m:
                     xn.append((int(m.group(1)), it[1], it[0], it[3], _t))
-                elif re.fullmatch(r"\d{1,4}", _n):
+                elif re.fullmatch(r"\d{1,4}", _n) and int(_n) >= _HG_PRICE_MIN:
+                    # v2.2.22：≥ _HG_PRICE_MIN 才算钻石定价（50/100/200…）
                     price.append((int(_n), it[1], it[0], it[3], _t))
             return xn, price
 
@@ -332,7 +339,9 @@ class AutoFarmTask(BaseTask):
         # v2.2.2（用户 09-13 10:02 判据）：读到**钻石定价**即免费次数已用尽。
         # 有值 = 必须立刻停手（再点就是花钻石）。
         paid_cost: Optional[int] = None
-        while claimed < allowance and clicks < allowance + _HG_MAX_RETRY:
+        # v2.2.22：循环以**屏幕上还剩几次**为准（remaining>0 就继续领），
+        # 不再用初始读数当上限 —— 用户规则：只要还显示 xN 就是免费 ✓
+        while remaining > 0 and clicks < _HG_SAFETY_CLICKS:
             if self.check_stop():
                 return
             # **点击前**的最后一道闸：按钮已显示钻石定价 → 一次都不点。
@@ -345,8 +354,11 @@ class AutoFarmTask(BaseTask):
             # 但那会破坏用户硬规则（V1：x3 且前 3 次点击被吞时仍须补点领满
             # 3 次）→ 已移除。钻石付费档的防护改由**读数侧**承担
             # （xN 距离上限 + 钻石定价判定）。
-            if claimed == 0 and misses >= _HG_NO_PROGRESS_MAX:
-                self.log(f"[警告] 连续 {misses} 次点击未生效，停止领取")
+            # v2.2.22：改为**不论已领几次**都生效 —— 读数失灵时若继续盲点，
+            # 可能点到钻石档（每点一次都花钻）✗。连续 N 次没确认到递减即停。
+            if misses >= _HG_NO_PROGRESS_MAX:
+                self.log(f"[警告] 连续 {misses} 次点击未确认到次数递减"
+                         f"（已生效 {claimed} 次）→ 停止领取，避免盲点花钻")
                 break
             hourglass = _locate_hourglass()
             if not hourglass:
@@ -384,8 +396,13 @@ class AutoFarmTask(BaseTask):
                     break
                 # ② 否则看 xN 是否递减
                 new_val = _nearest_in_range(_xn, _anchor)
-                if new_val is None or new_val < remaining:
-                    remaining = new_val if new_val is not None else 0
+                # ⚠️ v2.2.22 核心修复：**读不到 ≠ 已领完** ✗
+                # 旧实现把 None 当成 remaining=0 → x3 只领 2 次就收手
+                # （真机 11:59 日志：x3 → 领 2 次 → 「共 2 次」，但第 3 次免费）✗
+                # 现在：只有**真读到更小的 xN** 才算这次生效；读不到/未变化
+                # 都按"这次没确认"处理 → 交给 misses 重试链路（有上限）✓
+                if new_val is not None and new_val < remaining:
+                    remaining = new_val
                     ok = True
                     break
             if ok:

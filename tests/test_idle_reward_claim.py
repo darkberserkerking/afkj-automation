@@ -28,7 +28,8 @@ if ROOT not in sys.path:
 
 import tasks.auto_farm as AF  # noqa: E402
 from tasks.auto_farm import (AutoFarmTask, _HG_MAX_CLAIMS,
-                             _HG_MAX_RETRY, _HG_NO_PROGRESS_MAX)  # noqa: E402
+                             _HG_MAX_RETRY, _HG_NO_PROGRESS_MAX,
+                             _HG_SAFETY_CLICKS)  # noqa: E402
 
 _PASS, _FAIL = [], []
 
@@ -79,9 +80,13 @@ class MockBot:
             items.append((500.0, 640.0, "收获奖励", 0.99))
         if self.remaining > 0:
             items.append((786.0, 1087.0, f"x{self.remaining}", self.hg_conf))
-        elif self.paid_cost is not None:
-            # v2.2.2：免费次数用尽 → 同一位置变成**钻石定价**（纯数字）
-            items.append((786.0, 1087.0, str(self.paid_cost), 0.97))
+        else:
+            # v2.2.22：免费次数归零后，按钮**必然**变成钻石定价（真机如此，
+            # 用户 10-27 规则）—— 旧桩在 x0 时什么都不显示 ✗，导致"最后一领"
+            # 永远读不到递减（不写实）。paid_cost 显式给 None 时默认 50。
+            items.append((786.0, 1087.0,
+                          str(self.paid_cost if self.paid_cost is not None
+                              else 50), 0.97))
         return items
 
     def find_text(self, items, kw, min_conf=0.5):
@@ -363,8 +368,8 @@ for _name, _kw in _inv:
 print("── V4 证伪：本套断言确实能抓到超领 / 两整轮 ──")
 # A) 变异：循环不受生效上限约束 + 每次点击都计一次（旧式不计验证）→ 应超领
 _m_over = _mutant([
-    ("while claimed < allowance and clicks < allowance + _HG_MAX_RETRY:",
-     "while clicks < allowance + _HG_MAX_RETRY:"),
+    ("while remaining > 0 and clicks < _HG_SAFETY_CLICKS:",
+     "while clicks < _HG_SAFETY_CLICKS:"),
     ("if ok:", "if True:"),
 ])
 _b = MockBot(start_remaining=3, swallow_first=3)
@@ -374,18 +379,17 @@ _e, _k = _reported_claims(_t._logs)
 check("V4a 变异后出现超领（生效 > n_val）→ V3 断言非空洞",
       _e > 3, f"observed eff={_e} n_val=3 clicks={len(_b.clicks_abs)} kind={_k}")
 
-# B) 变异：放宽点击预算 → 复现旧「两整轮 6 次」
-_m_six = _mutant([
-    ("while claimed < allowance and clicks < allowance + _HG_MAX_RETRY:",
-     "while claimed < allowance and clicks < 2 * allowance:"),
+# B) 变异：去掉"连续未确认即停"的安全阀 → 读数失灵时会一路点到硬上限
+#    （v2.2.22：这条守卫是"绝不盲点花钻"的关键防线，必须证明它有用）
+_m_noguard = _mutant([
+    ("if misses >= _HG_NO_PROGRESS_MAX:", "if False:"),
 ])
-_b = MockBot(start_remaining=3, swallow_first=3)
+_b = MockBot(start_remaining=5, decrement_on_click=False)
 _t = _make_task(_b)
-_m_six(_t)
-_e, _k = _reported_claims(_t._logs)
-check("V4b 变异后复现 6 次两整轮 → V1b/V1c 断言非空洞",
-      len(_b.clicks_abs) == 6 and _e == 3,
-      f"clicks={len(_b.clicks_abs)} eff={_e} kind={_k}")
+_m_noguard(_t)
+check("V4b 变异(去掉安全阀)：无进展时会点到硬上限 → 6a/6b 断言非空洞",
+      len(_b.clicks_abs) == _HG_SAFETY_CLICKS,
+      f"clicks={len(_b.clicks_abs)} 硬上限={_HG_SAFETY_CLICKS}")
 
 # ══════════════════════════════════════════════════════════════
 #  Fix 2：_sleep 停止即时生效（真实时钟）
@@ -723,6 +727,35 @@ check("21b 日志显示读到 x1（而非报未检测到）",
 check("21c 领完如实报「共 1 次」",
       any("共 1 次" in m for m in t._logs),
       str([m for m in t._logs if "[成功]" in m][:1]))
+
+print("── 23. v2.2.22 读数抖动不得提前收手（用户规则：显示 xN 就是免费）──")
+# 真机 11:59：x3 只领 2 次就收手 —— 旧实现把"某次轮询没读到 xN"当成
+# "剩 0 次"✗。本用例模拟 OCR 每隔一次漏检徽标，要求仍领满 3 次。
+
+
+class _FlakyReadBot(MockBot):
+    """xN 间歇性读不到（模拟 OCR 漏检波动）。"""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self._n = 0
+
+    def _ocr_screen(self, img=None, no_cache=False):
+        items = super()._ocr_screen(img=img)
+        self._n += 1
+        if self._n % 2 == 0:                 # 偶数次：徽标"看不见"
+            return [it for it in items if not str(it[2]).startswith('x')]
+        return items
+
+
+_b23 = _FlakyReadBot(start_remaining=3, decrement_on_click=True)
+_t23, _b23 = _run_claim(_b23)
+check("23a 【关键分叉】xN 间歇读不到 → 仍领满 3 次（旧实现遇 None 当领完 ✗）",
+      _b23.decrements == 3,
+      f"实际递减={_b23.decrements} 点击={len(_b23.clicks_abs)}")
+check("23b 如实报「共 3 次」",
+      any("共 3 次" in m for m in _t23._logs),
+      str([m for m in _t23._logs if "[成功]" in m][:1])[:80])
 
 # ══════════════════════════════════════════════════════════════
 #  汇总
