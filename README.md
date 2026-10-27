@@ -56,6 +56,27 @@ model/ocr/
 | `docs/` | 开发指导手册、界面命名规范、坐标规范等 |
 | `backup/` | 本地历史备份（**不纳入仓库**） |
 
+## 自动更新
+
+程序启动 3 秒后会自动检查 GitHub 最新版本，也可在 **设置抽屉 → 关于** 里手动点「🔄 检查更新」。
+
+- **打包 exe**：发现新版本 → 点「⬇️ 立即更新」→ 下载后自动替换并重启
+  （替换由临时 `.bat` 完成：等进程退出 → `move /y` 覆盖 → 重启 → 自删）
+- **源码运行**：提示用 `git pull` 更新（自动替换仅对 exe 生效）
+- **私密仓库需要 Token**（GitHub API 限制），二选一：
+  1. 环境变量 `AFKJ_GH_TOKEN=<token>`
+  2. 程序目录放 `github_token.txt`，内容为一行 Token
+
+命令行检查：
+
+```bash
+python -m afk_bot.updater --check    # 只看有没有新版
+python -m afk_bot.updater --update   # 下载并安装（仅 exe 模式）
+```
+
+> 发布新版本：网页 → **Releases** → Draft a new release → Tag 填 `vX.Y.Z` →
+> 上传 `dist\AFKJ自动化工具vX.Y.Z.exe` → Publish。程序按 `tag_name` 比较版本。
+
 ## 测试
 
 ```bash

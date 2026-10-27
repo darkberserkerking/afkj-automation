@@ -283,6 +283,7 @@ class App(ctk.CTk):
 
         self._build_ui()
         self._load_gui_settings()   # v1.8.16：恢复透明度/置顶/窗口几何
+        self._schedule_startup_update_check()   # v2.2.20：启动后静默查更新
 
         self._flush_id = None
         self._timer_id = None
@@ -333,6 +334,13 @@ class App(ctk.CTk):
 
     # ────────────────────────────────────────────────────────────────
     #  UI 构建
+
+    def _schedule_startup_update_check(self) -> None:
+        """启动后静默检查更新（3 秒后，失败不打扰用户）。"""
+        try:
+            self.after(3000, lambda: self._on_check_update(silent=True))
+        except Exception:
+            pass
 
     def _build_ui(self):
         self._build_header()
@@ -1568,6 +1576,104 @@ class App(ctk.CTk):
             ctk.CTkLabel(drawer_content, text=line,
                          font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
                          anchor='w').pack(**pad)
+
+        # ── ⑥ 自动更新（v2.2.20）──
+        sep6 = ctk.CTkFrame(drawer_content, fg_color=BG_BTN, height=1)
+        sep6.pack(fill='x', padx=SPACE_MD, pady=SPACE_MD)
+
+        row = ctk.CTkFrame(drawer_content, fg_color='transparent')
+        row.pack(**pad)   # pad 里已含 fill='x'
+        self._update_btn = ctk.CTkButton(
+            row, text='🔄 检查更新', width=108, height=30,
+            font=self._f_small, fg_color=BG_BTN, hover_color=BG_INPUT,
+            border_color=BG_BTN, command=self._on_check_update,
+        )
+        self._update_btn.pack(side='left')
+        self._update_apply_btn = ctk.CTkButton(
+            row, text='⬇️ 立即更新', width=108, height=30,
+            font=self._f_small, fg_color=BG_BTN, hover_color=BG_INPUT,
+            border_color=BG_BTN, command=self._on_apply_update,
+        )
+        # 未发现新版本前不显示「立即更新」
+        # 注意：CTkLabel **不支持 justify**（tkinter.Label 才有）→ 传了会在
+        # 构建设置抽屉时抛错、导致 App 构造失败（本次已踩，A/B 才定位到）
+        self._update_status = ctk.CTkLabel(
+            drawer_content, text='', font=('Microsoft YaHei UI', 12),
+            text_color=TEXT_DIM, anchor='w', wraplength=300,
+        )
+        self._update_status.pack(**pad)
+
+    # ── 自动更新 ────────────────────────────────────────────
+
+    def _set_update_status(self, text: str, color=None) -> None:
+        """更新状态文案（**必须主线程调用**，后台线程走 _post_ui）。"""
+        try:
+            self._update_status.configure(text=text,
+                                          text_color=color or TEXT_DIM)
+        except Exception:
+            pass
+
+    def _on_check_update(self, silent: bool = False) -> None:
+        """检查 GitHub 最新版（后台线程，不阻塞界面）。"""
+        def _work():
+            try:
+                from afk_bot import updater
+                info = updater.check_latest()
+                if info is None:
+                    self._post_ui(lambda: self._set_update_status(
+                        f'✅ 已是最新版（{VERSION}）'))
+                else:
+                    size = (f'{info.size / 1048576:.1f}MB'
+                            if info.size else '大小未知')
+                    self._post_ui(lambda: self._on_update_found(info, size))
+            except Exception as e:
+                msg = str(e)
+                if silent:
+                    self._post_ui(lambda: self._set_update_status(msg))
+                else:
+                    self._post_ui(lambda: self._set_update_status(msg))
+
+        self._set_update_status('⏳ 正在检查更新…')
+        threading.Thread(target=_work, daemon=True,
+                         name='update-check').start()
+
+    def _on_update_found(self, info, size: str) -> None:
+        """**主线程**：发现新版本的 UI 更新。"""
+        self._pending_update = info
+        self._set_update_status(
+            f'🆕 发现新版本 {info.tag}（{size}）\n{info.notes[:120]}'
+            if info.notes else f'🆕 发现新版本 {info.tag}（{size}）',
+            color=WARN if 'WARN' in globals() else None,
+        )
+        try:
+            self._update_apply_btn.pack(side='left', padx=(SPACE_SM, 0))
+        except Exception:
+            pass
+
+    def _on_apply_update(self) -> None:
+        """下载并替换（仅打包 exe 生效）。"""
+        info = getattr(self, '_pending_update', None)
+        if info is None:
+            return
+        if not getattr(sys, 'frozen', False):
+            self._set_update_status('ℹ️ 源码运行模式：请用 git pull 更新（自动替换仅对 exe 生效）')
+            return
+
+        def _work():
+            try:
+                from afk_bot import updater
+                self._post_ui(lambda: self._set_update_status('⏳ 正在下载…'))
+                path = updater.download_asset(info)
+                self._post_ui(lambda: self._set_update_status('⏳ 正在安装（即将重启）…'))
+                updater.launch_updater(path)
+                # 让替换脚本能覆盖 exe：必须真正退出进程
+                self._post_ui(lambda: (self.destroy(), os._exit(0)))
+            except Exception as e:
+                msg = f'❌ 更新失败：{e}'
+                self._post_ui(lambda: self._set_update_status(msg))
+
+        threading.Thread(target=_work, daemon=True,
+                         name='update-apply').start()
 
     def _clear_log(self):
         """清空日志区"""
