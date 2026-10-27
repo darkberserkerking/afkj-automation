@@ -1622,6 +1622,19 @@ class App(ctk.CTk):
         def _work():
             try:
                 from afk_bot import updater
+                # v2.2.23（用户 10-27）：**源码模式走 git** —— 不再需要
+                # Release/Token，也不用每次传 136MB 的 exe ✓
+                if not getattr(sys, 'frozen', False):
+                    info = updater.check_source()
+                    if info is None:
+                        self._post_ui(lambda: self._set_update_status(
+                            f'✅ 已是最新（源码 {VERSION}）'))
+                    else:
+                        self._pending_update = 'source'
+                        self._post_ui(lambda: self._on_update_found(
+                            f'🆕 远端有新提交：{info.local} → {info.remote}',
+                            f'落后 {info.behind} 个提交（源码模式，git pull）'))
+                    return
                 info = updater.check_latest()
                 if info is None:
                     self._post_ui(lambda: self._set_update_status(
@@ -1629,26 +1642,21 @@ class App(ctk.CTk):
                 else:
                     size = (f'{info.size / 1048576:.1f}MB'
                             if info.size else '大小未知')
-                    self._post_ui(lambda: self._on_update_found(info, size))
+                    self._post_ui(lambda: self._on_update_found(
+                        f'🆕 发现新版本 {info.tag}（{size}）',
+                        (info.notes or '')[:120]))
             except Exception as e:
-                msg = str(e)
-                if silent:
-                    self._post_ui(lambda: self._set_update_status(msg))
-                else:
-                    self._post_ui(lambda: self._set_update_status(msg))
+                msg = f'❌ {e}'
+                self._post_ui(lambda: self._set_update_status(msg))
 
         self._set_update_status('⏳ 正在检查更新…')
         threading.Thread(target=_work, daemon=True,
                          name='update-check').start()
 
-    def _on_update_found(self, info, size: str) -> None:
-        """**主线程**：发现新版本的 UI 更新。"""
-        self._pending_update = info
-        self._set_update_status(
-            f'🆕 发现新版本 {info.tag}（{size}）\n{info.notes[:120]}'
-            if info.notes else f'🆕 发现新版本 {info.tag}（{size}）',
-            color=WARN if 'WARN' in globals() else None,
-        )
+    def _on_update_found(self, title: str, detail: str = '') -> None:
+        """**主线程**：发现新版本的 UI 更新（源码/打包共用）。"""
+        self._set_update_status(f'{title}\n{detail}' if detail else title,
+                                color=WARN if 'WARN' in globals() else None)
         try:
             self._update_apply_btn.pack(side='left', padx=(SPACE_SM, 0))
         except Exception:
@@ -1659,8 +1667,21 @@ class App(ctk.CTk):
         info = getattr(self, '_pending_update', None)
         if info is None:
             return
+        # v2.2.23：源码模式 → 直接 git pull（无需 Release / 无关 exe 体积）
         if not getattr(sys, 'frozen', False):
-            self._set_update_status('ℹ️ 源码运行模式：请用 git pull 更新（自动替换仅对 exe 生效）')
+            def _work_src():
+                try:
+                    from afk_bot import updater
+                    self._post_ui(lambda: self._set_update_status('⏳ 正在 git pull…'))
+                    updater.git_pull()
+                    self._post_ui(lambda: self._set_update_status(
+                        '✅ 已更新到最新源码，请**重启工具**生效'))
+                    self._pending_update = None
+                except Exception as e:
+                    msg = f'❌ 更新失败：{e}'
+                    self._post_ui(lambda: self._set_update_status(msg))
+            threading.Thread(target=_work_src, daemon=True,
+                             name='update-git').start()
             return
 
         def _work():
@@ -2169,6 +2190,33 @@ def _check_admin():
     return is_admin
 
 if __name__ == '__main__':
+    # v2.2.23：命令行自检/更新（不打开界面，便于排查 exe 的 HTTPS/证书问题）
+    if '--check-update' in sys.argv or '--update' in sys.argv:
+        # 打包版是**无控制台**程序 → print 看不到，故同时落盘到
+        # exe 同目录的 _update_check.log（便于用户/排查时取证）
+        import contextlib
+        import io as _io
+        from afk_bot import updater as _upd
+        _args = ['--update'] if '--update' in sys.argv else ['--check']
+        _buf = _io.StringIO()
+        with contextlib.redirect_stdout(_buf):
+            _rc = _upd.main(_args)
+        _text = _buf.getvalue()
+        try:
+            print(_text)
+        except Exception:
+            pass
+        try:
+            _log = os.path.join(os.path.dirname(os.path.abspath(__file__))
+                                if not getattr(sys, 'frozen', False)
+                                else os.path.dirname(sys.executable),
+                                '_update_check.log')
+            with open(_log, 'w', encoding='utf-8') as f:
+                f.write(_text)
+        except Exception:
+            pass
+        raise SystemExit(_rc)
+
     ctk.set_appearance_mode('light')
     ctk.set_default_color_theme('blue')
 

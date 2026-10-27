@@ -154,6 +154,35 @@ check('7c 覆盖后启动新 exe', 'start ""' in bat)
 check('7d 脚本自删', 'del "%~f0"' in bat)
 check('7e cp65001（中文路径不乱码）', 'chcp 65001' in bat)
 
+# ── 8. 源码模式（v2.2.23：不依赖 Release/Token，直接 git）──
+print('── 8. 源码模式（git）──')
+check('8a is_frozen() 在源码环境下为 False', U.is_frozen() is False)
+check('8b repo_root() 指向项目根（含 .git）',
+      (U.repo_root() / '.git').exists(), str(U.repo_root()))
+try:
+    _src = U.check_source()
+    check('8c check_source() 可执行（返回 None=已最新 / info=有更新）',
+          _src is None or hasattr(_src, 'behind'),
+          f'result={_src!r}')
+    if _src is not None:
+        check('8d 落后提交数 ≥1 且给出 hash',
+              _src.behind >= 1 and len(_src.local) >= 6 and len(_src.remote) >= 6,
+              f'local={_src.local} remote={_src.remote} behind={_src.behind}')
+    else:
+        check('8d 已是最新（无待拉取提交）', True)
+except U.UpdateError as e:
+    check('8c check_source() 不应在项目内报错', False, str(e)[:80])
+
+# CLI 走源码分支：--check 应返回 0 且提到"源码"
+import io as _io
+import contextlib as _cl
+_buf = _io.StringIO()
+with _cl.redirect_stdout(_buf):
+    _rc = U.main(['--check'])
+_out = _buf.getvalue()
+check('8e CLI --check 在源码模式走 git 分支（不报 Release/Token）',
+      _rc == 0 and ('源码' in _out or '提交' in _out), _out.strip()[:80])
+
 print()
 print(f'══ 自动更新器：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

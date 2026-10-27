@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 OWNER: str = 'darkberserkerking'
 REPO: str = 'afkj-automation'
@@ -131,9 +131,40 @@ def _headers(token: str) -> Dict[str, str]:
     return h
 
 
+def _ssl_context():
+    """构造 HTTPS 上下文：**优先 certifi 的 CA 包**。
+
+    为什么必须显式指定（v2.2.23，真机 2026-10-27 实证）：
+    PyInstaller onefile 里 Python 自带的证书链往往拿不到 → 握手时报
+    `[ASN1: NOT_ENOUGH_DATA] not enough data (_ssl.c:...)` ✗
+    （源码模式正常 ✓、exe 报错 ✗ —— 就是这个差异）
+    """
+    import ssl
+    try:
+        import certifi
+        # 打包后 certifi 的数据文件在 _MEIPASS/certifi/cacert.pem
+        path = certifi.where()
+        if not os.path.isfile(path):
+            base = getattr(sys, '_MEIPASS', '')
+            cand = os.path.join(base, 'certifi', 'cacert.pem')
+            if os.path.isfile(cand):
+                path = cand
+        return ssl.create_default_context(cafile=path)
+    except Exception:
+        # 退回系统证书库（Windows 可用）；若仍失败会在调用处报错
+        return ssl.create_default_context()
+
+
+_SSL_CTX = None
+
+
 def _default_fetch(url: str, token: str, timeout: float) -> bytes:
+    global _SSL_CTX
+    if _SSL_CTX is None:
+        _SSL_CTX = _ssl_context()
     req = urllib.request.Request(url, headers=_headers(token))
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=timeout,
+                                context=_SSL_CTX) as resp:  # noqa: S310
         return resp.read()
 
 
@@ -237,6 +268,92 @@ def download_asset(
     return dest
 
 
+@dataclass
+class SourceUpdateInfo:
+    """源码模式的更新信息（基于 git 提交，不需要 Release/Token）。"""
+    local: str      # 本地 HEAD 短 hash
+    remote: str     # 远端 main 短 hash
+    behind: int     # 落后提交数
+
+
+GIT_TIMEOUT: float = 30.0
+
+
+def repo_root() -> Path:
+    """项目根目录（源码模式）。"""
+    return Path(__file__).resolve().parent.parent
+
+
+def _git(args: List[str], cwd: Path, timeout: float = GIT_TIMEOUT):
+    """执行 git 命令 → (returncode, 输出)。找不到 git 时抛 UpdateError。"""
+    try:
+        p = subprocess.run(
+            ['git'] + args, cwd=str(cwd), capture_output=True,
+            timeout=timeout,
+            encoding='utf-8', errors='replace',
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+        return p.returncode, (p.stdout or '') + (p.stderr or '')
+    except FileNotFoundError:
+        raise UpdateError('未找到 git（源码模式更新需要安装 Git）') from None
+    except subprocess.TimeoutExpired:
+        raise UpdateError('git 操作超时（检查网络/代理）') from None
+
+
+def check_source(timeout: float = 20.0) -> Optional[SourceUpdateInfo]:
+    """**源码模式**：比较本地 HEAD 与 GitHub 上的 origin/main。
+
+    Returns:
+        None = 已是最新；否则 SourceUpdateInfo
+    Raises:
+        UpdateError: 非 git 仓库 / 无 git / 网络失败
+    """
+    root = repo_root()
+    if not (root / '.git').exists():
+        raise UpdateError('当前不是 git 仓库（源码模式更新需在项目目录内运行）')
+    rc, out = _git(['rev-parse', '--short', 'HEAD'], root)
+    if rc != 0:
+        raise UpdateError(f'读取本地版本失败：{out.strip()[:120]}')
+    local = out.strip()
+    rc, out = _git(['fetch', '--quiet', 'origin', 'main'], root, timeout)
+    if rc != 0:
+        raise UpdateError(f'拉取远端失败：{out.strip()[:160]}')
+    rc, out = _git(['rev-parse', '--short', 'origin/main'], root)
+    if rc != 0:
+        raise UpdateError('读取远端版本失败')
+    remote = out.strip()
+    if remote == local:
+        return None
+    rc, out = _git(['rev-list', '--count', 'HEAD..origin/main'], root)
+    try:
+        behind = int(out.strip() or 0)
+    except ValueError:
+        behind = 0
+    if behind <= 0:
+        return None
+    return SourceUpdateInfo(local=local, remote=remote, behind=behind)
+
+
+def git_pull(timeout: float = 90.0) -> str:
+    """**源码模式**更新：git pull --ff-only（要求工作区干净，绝不覆盖本地改动）。
+
+    Returns:
+        一句话结果（成功）
+    Raises:
+        UpdateError: 有本地改动 / 冲突 / 网络失败
+    """
+    root = repo_root()
+    rc, out = _git(['status', '--porcelain'], root)
+    if rc != 0:
+        raise UpdateError('读取 git 状态失败')
+    if out.strip():
+        raise UpdateError('本地有未提交改动，已中止更新（先 commit 或 stash）')
+    rc, out = _git(['pull', '--ff-only'], root, timeout)
+    if rc != 0:
+        raise UpdateError(f'git pull 失败：{out.strip()[:200]}')
+    return out.strip() or '已是最新'
+
+
 def is_frozen() -> bool:
     """是否以打包后的 exe 运行。"""
     return bool(getattr(sys, 'frozen', False))
@@ -303,6 +420,26 @@ def main(argv: Optional[list] = None) -> int:
     """命令行入口：`python -m afk_bot.updater [--check|--update]`。"""
     args = list(sys.argv[1:] if argv is None else argv)
     update = '--update' in args
+
+    # v2.2.23：**源码模式**走 git（不需要 Release/Token，也不再拉 136MB exe）
+    if not is_frozen():
+        try:
+            info = check_source()
+            if info is None:
+                print(f'已是最新（源码 {repo_root().name}）')
+                return 0
+            print(f'远端有新提交：本地 {info.local} → 远端 {info.remote}'
+                  f'（落后 {info.behind} 个提交）')
+            if not update:
+                print('（加 --update 执行 git pull）')
+                return 0
+            print(git_pull()[-400:])
+            print('✅ 已更新，请重启程序生效')
+            return 0
+        except UpdateError as e:
+            print(str(e))
+            return 1
+
     try:
         info = check_latest()
         if info is None:

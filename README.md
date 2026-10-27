@@ -58,19 +58,28 @@ model/ocr/
 
 ## 自动更新
 
-程序启动 3 秒后会**静默检查** GitHub 最新版本；也可在 **设置抽屉 → 关于** 里手动点「🔄 检查更新」。
-发现新版本时会出现「⬇️ 立即更新」，下载完成后自动替换并重启。
+程序启动 3 秒后静默检查；也可在 **设置抽屉 → 关于** 手动点「🔄 检查更新」。
 
-| 运行方式 | 更新行为 |
-|---|---|
-| **打包 exe** | 下载 Release 附件 → 生成临时 `.bat`：等进程退出 → `move /y` 覆盖 → 重启 → 自删 |
-| **源码运行** | 提示用 `git pull`（自动替换只对 exe 生效） |
+**两种模式自动切换**（按是否打包运行）：
 
-命令行：
+| 运行方式 | 检查 | 更新 | 是否需要 Release/Token |
+|---|---|---|---|
+| **源码**（`python afk_gui.py`） | 比较本地 HEAD 与 `origin/main` | **`git pull --ff-only`** | **都不需要** ✓ |
+| **打包 exe** | 查最新 Release 的 `tag_name` | 下载附件 exe 并原地替换 | 需要 Release；私密仓库另需 Token |
+
+> 源码模式更新前会校验工作区是否干净，**有未提交改动则中止**（绝不覆盖你的修改）。
+
+命令行（不打开界面，便于排查）：
 
 ```bash
-python -m afk_bot.updater --check    # 只看有没有新版
-python -m afk_bot.updater --update   # 下载并安装（仅 exe 模式）
+python -m afk_bot.updater --check     # 源码模式：比对 git；exe 模式：查 Release
+python -m afk_bot.updater --update    # 源码模式：git pull；exe 模式：下载并安装
+```
+
+打包版同样支持：
+
+```bat
+AFKJ自动化工具vX.Y.Z.exe --check-update   :: 打印结果后退出（可用来验证网络/证书）
 ```
 
 ### 发布新版本（维护者）
