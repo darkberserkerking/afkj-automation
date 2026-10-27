@@ -1597,18 +1597,22 @@ class App(ctk.CTk):
         # 未发现新版本前不显示「立即更新」
         # 注意：CTkLabel **不支持 justify**（tkinter.Label 才有）→ 传了会在
         # 构建设置抽屉时抛错、导致 App 构造失败（本次已踩，A/B 才定位到）
-        self._update_status = ctk.CTkLabel(
+        # ⚠️ 名字**绝不能**叫 _update_status —— 那是 core 的状态回调方法
+        #（_init_bot_background 会把它当 status_callback 传给引擎，
+        #  同名会把它覆盖成 CTkLabel → core 调 set_status() 报
+        #  'CTkLabel' object is not callable，v2.2.20 真机即因此崩）
+        self._upd_status_lbl = ctk.CTkLabel(
             drawer_content, text='', font=('Microsoft YaHei UI', 12),
             text_color=TEXT_DIM, anchor='w', wraplength=300,
         )
-        self._update_status.pack(**pad)
+        self._upd_status_lbl.pack(**pad)
 
     # ── 自动更新 ────────────────────────────────────────────
 
     def _set_update_status(self, text: str, color=None) -> None:
         """更新状态文案（**必须主线程调用**，后台线程走 _post_ui）。"""
         try:
-            self._update_status.configure(text=text,
+            self._upd_status_lbl.configure(text=text,
                                           text_color=color or TEXT_DIM)
         except Exception:
             pass

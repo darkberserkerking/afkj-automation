@@ -14,7 +14,7 @@ from typing import Dict
 import sys
 
 # ── 版本号 ──────────────────────────────────────────────────────
-VERSION: str = 'v2.2.20'
+VERSION: str = 'v2.2.21'
 
 # v1.8.49：日志级别标志表——下沉到中性层，供 tasks 与 afk_bot 共用
 # （此前 tasks/base.py 与 auto_farm/loop.py 各存一份，属重复真相源）

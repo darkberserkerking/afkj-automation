@@ -315,6 +315,26 @@ if hasattr(app, '_toggle_settings_drawer') and hasattr(app, '_settings_drawer'):
 else:
     print('[SKIP] 设置抽屉 API 名称未匹配，跳过（非本次改动范围）')
 
+# ══ v2.2.21 回归：状态回调不得被同名 widget 覆盖 ══
+# 背景：v2.2.20 在设置抽屉里加了 `self._update_status = ctk.CTkLabel(...)`，
+# 与类方法 `_update_status()` **同名** → 方法被覆盖 → core 关停时
+# `set_status(running=False)` 抛 TypeError: 'CTkLabel' object is not callable
+# （真机 2026-10-27 11:59 每次推图结束即失败）
+check('v2.2.21 状态回调 _update_status 仍是可调用的方法（未被同名 widget 覆盖）',
+      callable(getattr(app, '_update_status', None)),
+      type(getattr(app, '_update_status', None)).__name__)
+try:
+    app._update_status(running=False)      # core 关停时的真实调用形态
+    _status_ok = True
+except TypeError as e:
+    _status_ok = False
+    print(f'    -> {e}')
+check('v2.2.21 _update_status(running=False) 可正常执行（推图结束路径）',
+      _status_ok)
+check('v2.2.21 更新状态标签用了不冲突的名字',
+      hasattr(app, '_upd_status_lbl'),
+      'app._upd_status_lbl 存在' if hasattr(app, '_upd_status_lbl') else '缺失')
+
 if hasattr(app, '_slider_alpha') and hasattr(app, '_on_alpha_change'):
     app._slider_alpha.set(0.9)
     app._on_alpha_change(0.9)
