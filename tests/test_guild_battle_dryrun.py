@@ -239,6 +239,37 @@ probe6 = t6.startup_probe()
 check('6c 在公会玩法目录启动 → probe 不返回 ready（会先去导航）',
       probe6 != 'ready', f'probe={probe6!r}')
 
+# ── 9. 【真机回归 15:15】结算页只有按钮、没有可读的艺术字标题 ──
+# 真机：游戏「战斗失败」是大字艺术字 → OCR 读不出 → 任务卡在「战斗中」空转 5 分钟 ✗
+# 修法：结算判据加按钮正体字（再次挑战/继续挑战）→ 这里只给按钮
+LOSE_BTN_ONLY = F('再次挑战')          # 没有「战斗失败」标题
+frames9 = (
+    [MAIN0] + [MAIN0]
+    + [READY, READY, POPUP, BATTLE]    # 开打
+    + [LOSE_BTN_ONLY]                  # 结算页：只有按钮
+    + [MAIN_NOBTN]
+)
+t9, bot9 = _mk(frames9)
+r9 = t9.run()
+check('9a 只有「再次挑战」按钮（艺术字读不出）→ 仍算结算，计入 1 负',
+      t9.losses == 1, f'losses={t9.losses} r={r9!r}')
+check('9b 并且点了「再次挑战」继续下一局',
+      sum(1 for c in bot9.clicks if c[2] == '结社战线_再次挑战') >= 1,
+      str([c[2] for c in bot9.clicks]))
+# 胜利侧同理：只有「继续挑战」按钮 → 应判**胜利**（不是失败 ✗）
+WIN_BTN_ONLY = F('继续挑战')
+frames9b = (
+    [MAIN0] + [MAIN0]
+    + [READY, READY, POPUP, BATTLE]
+    + [WIN_BTN_ONLY]
+    + [MAIN_NOBTN]
+)
+t9b, bot9b = _mk(frames9b)
+t9b.run()
+check('9c 只有「继续挑战」按钮 → 判为**胜利**（按钮反推胜负 ✓）',
+      t9b.wins == 1 and t9b.losses == 0,
+      f'wins={t9b.wins} losses={t9b.losses}')
+
 # ── 8. 【真机回归 14:07】公会玩法页 ≠ 备战界面 ──
 # 该页「公会争霸战」卡片下写着「派遣**编队**中」→ 旧判据 _READY_WORDS 含"编队"
 # → probe 判 ready、主循环走备战分支（通关阵容/一键采用/F 全在瞎按 ✗）
