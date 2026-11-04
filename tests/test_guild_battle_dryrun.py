@@ -50,7 +50,8 @@ MAIN_NOBTN = F('结社战线', '扫荡', '今日剩余：0')                    
 READY = F('结社战线-第23层', '通关阵容', '战斗', 'F')
 POPUP = F('匹配阵容', '一键采用', '点击空白处关闭')
 BATTLE = F('结社战线-第23层', '85秒', '跳过')
-WIN_RETRY = F('战斗胜利', '再次挑战')
+# 真机 2026-11-04 12:46：胜利页按钮是「**继续挑战**」（失败才是「再次挑战」）
+WIN_RETRY = F('战斗胜利', '继续挑战')
 LOSE_RETRY = F('战斗失败', '再次挑战')
 WIN_LAST = F('战斗胜利')          # 次数用尽 → 无「再次挑战」
 
@@ -136,8 +137,9 @@ check('1b 点过「扫荡」', any(c[2] == '结社战线_扫荡' for c in bot.cl
 check('1c 「挑战」点了 1 次（第2局由「再次挑战」进入）',
       sum(1 for c in bot.clicks if c[2] == '结社战线_挑战') == 1,
       str([c[2] for c in bot.clicks]))
-check('1d 「再次挑战」点了 1 次',
-      sum(1 for c in bot.clicks if c[2] == '结社战线_再次挑战') == 1,
+check('1d 胜利后点的是「继续挑战」（不是「再次挑战」✗）',
+      sum(1 for c in bot.clicks if c[2] == '结社战线_继续挑战') == 1
+      and not any(c[2] == '结社战线_再次挑战' for c in bot.clicks),
       str([c[2] for c in bot.clicks]))
 check('1e 「跳过」点了 2 次（文本判据）',
       sum(1 for c in bot.clicks if c[2] == '结社战线_跳过') == 2,
@@ -236,6 +238,23 @@ t6.startup_probe = GuildBattleTask.startup_probe.__get__(t6, GuildBattleTask)
 probe6 = t6.startup_probe()
 check('6c 在公会玩法目录启动 → probe 不返回 ready（会先去导航）',
       probe6 != 'ready', f'probe={probe6!r}')
+
+# ── 7. 【真机回归】同一结算页被重复读到 → 只计一次 ──
+# 真机 12:46：胜利页找不到按钮 → 点空白关不掉 → 同一页读了 9 次
+# → 记成「9 连胜」✗
+frames7 = (
+    [MAIN0] + [MAIN0]
+    + [READY, READY, POPUP, BATTLE]      # 第1局开打
+    + [WIN_RETRY, WIN_RETRY, WIN_RETRY]  # 同一结算页被连读 3 次
+    + [MAIN_NOBTN]
+)
+t7, bot7 = _mk(frames7)
+r7 = t7.run()
+check('7a 同一结算页连读 3 次 → 只计 1 胜（旧实现会记 3 胜 ✗）',
+      t7.wins == 1, f'wins={t7.wins} logs={[m for m in t7._logs if "结果" in m][:4]}')
+check('7b 每次读都点了「继续挑战」（不卡在同一页）',
+      sum(1 for c in bot7.clicks if c[2] == '结社战线_继续挑战') >= 1,
+      str([c[2] for c in bot7.clicks]))
 
 print()
 print(f'══ 结社战线干跑：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

@@ -44,7 +44,13 @@ _SWEEP_WORD: str = '扫荡'                             # **全等**匹配（避
 _SWEEP_LEFT_KW: str = '今日剩余'                       # 「今日剩余：0」→ 无次数，跳过扫荡
 _READY_WORDS: Tuple[str, ...] = ('通关阵容', '编队', '一键采用')
 _RESULT_WORDS: Tuple[str, ...] = ('战斗胜利', '战斗失败')
-_RETRY_WORD: str = '再次挑战'                          # 结算页唯一按钮
+# 真机 2026-11-04 12:46（用户截图 + 日志）：
+#   **胜利**结算页 = 「**继续挑战**」（绿色大按钮）
+#   **失败**结算页 = 「**再次挑战**」
+# 旧实现只认「再次挑战」✗ → 胜利后找不到按钮、点空白也关不掉结算 →
+# 同一页被重复读 9 次，记成「9 连胜」✗
+_CONTINUE_WORD: str = '继续挑战'                        # 胜利结算
+_RETRY_WORD: str = '再次挑战'                           # 失败结算
 _SKIP_WORD: str = '跳过'                               # 战斗页文本按钮（比模板可靠）
 
 
@@ -300,6 +306,7 @@ class GuildBattleTask(BaseTask):
         stall: int = 0
         in_battle: bool = False
         battle_wait: int = 0      # 战斗中无判据词的等待计数（不参与 stall 失败判定）
+        counted_settle: bool = False   # 同一结算页只计一次（v2.2.34）
         while True:
             if self.check_stop():
                 return self._stop_result()
@@ -323,37 +330,53 @@ class GuildBattleTask(BaseTask):
                 self._sleep(1.5)
                 continue
 
-            # ① 战斗结算页：胜/负 → 点「**再次挑战**」（实测结算页没有"点空白"）
+            # ① 战斗结算页：**胜利 → 「继续挑战」 / 失败 → 「再次挑战」**
+            #    （真机 2026-11-04 12:46 用户截图：胜利页大按钮是「继续挑战」）
             if any(w in t for t in texts for w in _RESULT_WORDS):
                 win = any('战斗胜利' in t for t in texts)
+                # 同一结算页只计一次（真机 12:46：关不掉结算页 → 重复计 9 次 ✗）
+                if not counted_settle:
+                    if win:
+                        self.wins += 1
+                    else:
+                        self.losses += 1
+                    counted_settle = True
                 if win:
-                    self.wins += 1
                     self._need_lineup = True      # 成功后重新设置阵容
                 else:
-                    # 用户口径（2026-10-27 16:52 更新）：**连续失败也继续循环**，
-                    # 不主动停（原阵容不变）；只由次数/时间上限或手动停止结束。
-                    self.losses += 1
+                    # 用户口径（2026-10-27 16:52）：**连续失败也继续循环**
                     self._need_lineup = False     # 失败 → 下一局直接 F
                     self.log("[信息] 战斗失败 → 原阵容继续下一局"
                              "（连败也继续，直到次数/时间上限或手动停止）")
                 self.log(f"[结果] 战斗{'胜利' if win else '失败'}"
                          f"（累计 {self.wins}胜/{self.losses}负）")
-                # 实测：结算页只有「再次挑战」(863,967)，**没有**"点击空白处关闭"
-                pos_retry = self._find_exact(items, _RETRY_WORD, 0.7)
-                if pos_retry:
-                    self.log(f"[点击] 「再次挑战」 | 图像=({pos_retry[0]},{pos_retry[1]})")
-                    self.bot.click_at(pos_retry[0], pos_retry[1],
-                                      '结社战线_再次挑战')
+                # 胜利优先「继续挑战」，失败优先「再次挑战」，两者互为兜底
+                _primary = _CONTINUE_WORD if win else _RETRY_WORD
+                _backup = _RETRY_WORD if win else _CONTINUE_WORD
+                _hit_word: Optional[str] = None
+                _hit_pos: Optional[Tuple[int, int]] = None
+                for _w in (_primary, _backup):
+                    _p = self._find_exact(items, _w, 0.7)
+                    if _p:
+                        _hit_word, _hit_pos = _w, _p
+                        break
+                if _hit_pos is not None:
+                    self.log(f"[点击] 「{_hit_word}」 | 图像=({_hit_pos[0]},{_hit_pos[1]})")
+                    self.bot.click_at(_hit_pos[0], _hit_pos[1],
+                                      f'结社战线_{_hit_word}')
                     self._sleep(2.0)
                 else:
-                    # 没有「再次挑战」= 次数用尽 → 点空白退出结算
-                    self.log("[信息] 结算页无「再次挑战」（次数可能用尽）→ 关闭结算")
+                    self.log("[信息] 结算页无「继续挑战/再次挑战」"
+                             "（次数可能用尽）→ 关闭结算")
                     self.dismiss_blink_popup(items)
                     self._sleep(1.2)
                 in_battle = False
                 battle_wait = 0
                 stall = 0
                 continue
+
+            # 非结算页 → 允许下一局重新计数
+            counted_settle = False
 
             # ② 备战界面：每局都走 通关阵容 → 一键采用 → F
             if any(w in t for t in texts for w in _READY_WORDS) or \
