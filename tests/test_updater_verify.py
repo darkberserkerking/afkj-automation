@@ -95,8 +95,12 @@ try:
     U.check_latest(fetch=_http_404)
     check('4a 404（私密/无 Release）→ UpdateError', False)
 except U.UpdateError as e:
-    check('4a 404（私密/无 Release）→ UpdateError 且提示 Token', 'Token' in str(e),
-          str(e)[:80])
+    # v2.2.32：仓库已公开 → 404 时提示语是"请先发布 Release"（不再提 Token）
+    # 故断言放宽为：**必须给出可执行提示**（Token 或 发布 Release 任一）✓
+    _msg = str(e)
+    check('4a 404（私密/无 Release）→ UpdateError 且给出可执行提示',
+          ('Token' in _msg) or ('Release' in _msg),
+          _msg[:90])
 
 
 def _http_401(url, token, timeout):

@@ -189,7 +189,8 @@ def check_latest(
         raw = _fetch(API_LATEST, tok, timeout)
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            hint = ('仓库私密或没有发布 Release。'
+            # v2.2.32：仓库已公开 → 前半句区分「没发 Release」与「Token 无权」
+            hint = ('仓库未发布 Release，或 Token 无权读取私密仓库。'
                     + ('私密仓库需 Token：设环境变量 AFKJ_GH_TOKEN，'
                        '或在程序目录放 github_token.txt（一行 Token）'
                        if not tok else '请先在该仓库发布一个 Release'))

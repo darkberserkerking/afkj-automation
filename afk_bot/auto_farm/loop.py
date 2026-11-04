@@ -14,7 +14,8 @@ import sys
 import time
 import json
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import (Any, Callable, Dict, Iterable, List, Optional,
+                    Tuple)
 
 import win32gui
 import win32con
@@ -32,6 +33,36 @@ from afk_bot.auto_farm.battle import BattleMonitor
 from afk_bot.auto_farm.formation import FormationManager
 from afk_bot.infra.stats import StatsTracker
 from afk_bot.services.navigator import Navigator
+
+
+# ═══════════════════════════════════════════════════════════════
+#  「挂机极限进度」确认弹窗（真机截图 2026-11-04 用户提供）
+# ═══════════════════════════════════════════════════════════════
+#  弹窗原文：
+#    「您已到达本日挂机极限进度，继续推关将不再提升本日的挂机产出速率，
+#      跨天后挂机速率将重新计算。是否确认继续挑战？」
+#    「本日极限进度：1100」
+#  右下角两个圆形按钮：✕(取消) / **√(继续挑战)** → 本项目要点 √
+#  模板：templates/btn_confirm_check.png（112×112 RGBA 绿色 √，与 labyrinth 同款）
+_AFK_LIMIT_CHECK_TPL: str = 'btn_confirm_check.png'
+_AFK_LIMIT_CHECK_THRESHOLD: float = 0.75
+_AFK_LIMIT_CHECK_SCALE_RANGE: Tuple[float, float, float] = (0.8, 1.3, 0.1)
+# 判据词：该类弹窗文字 1 秒周期闪烁、OCR 可能跨行截断 → 补截断形式
+# ⚠️ 结算页是「再次挑战」，字面不同 → **不会**命中下面的判据 ✓
+# （否则会把正常结算误判成弹窗而点 √）
+_AFK_LIMIT_DIALOG_MARKS: Tuple[str, ...] = (
+    '是否确认继续挑战', '是否确认继续挑', '确认继续挑战',
+    '挂机极限进度', '本日极限进度', '极限进度',
+)
+
+
+def is_afk_limit_dialog(texts: Iterable[str]) -> bool:
+    """判断一组 OCR 文本是否为「挂机极限进度」确认弹窗（纯函数，便于测试）。"""
+    for t in texts:
+        s = str(t)
+        if any(m in s for m in _AFK_LIMIT_DIALOG_MARKS):
+            return True
+    return False
 
 
 class AFKBotCore:
@@ -429,6 +460,43 @@ class AFKBotCore:
         # 兜底：点击空白处关闭
         self._log('info', 'ESC未生效，尝试点击空白处')
         self._input_controller.click_abs(960, 540)
+
+    def _handle_afk_limit_confirm(self) -> bool:
+        """处理「挂机极限进度」确认弹窗 → 点 **√**（继续挑战）。
+
+        真机 2026-11-04：到达本日挂机极限进度时游戏弹出确认框
+        「…是否确认继续挑战？」，右下角 ✕/√ 两个圆按钮 → 本项目点 √。
+
+        Returns:
+            bool: True=已处理（调用方应 continue 重新识别画面）
+        """
+        # 该类弹窗文字 1 秒周期闪烁 → 单帧 OCR 可能落在暗相，隔 1s 再扫一帧
+        for _try in range(2):
+            try:
+                items = self._screen_capture.ocr_screen()
+            except Exception as _e:
+                self.log(f"[调试] _handle_afk_limit_confirm() OCR 异常: {_e}")
+                items = []
+            texts = [
+                s for _, _, s, c, *_ in items
+                if isinstance(c, (int, float)) and c >= 0.3
+            ]
+            if is_afk_limit_dialog(texts):
+                self.log('info', '检测到「挂机极限进度」确认弹窗，点 √ 继续挑战')
+                ok = self.template_match(
+                    _AFK_LIMIT_CHECK_TPL, _AFK_LIMIT_CHECK_THRESHOLD,
+                    scale_range=_AFK_LIMIT_CHECK_SCALE_RANGE)
+                if ok:
+                    self.log('info', '已点击 √（继续挑战）')
+                    self._stop_event.wait(1.5)
+                    return True
+                # 模板没命中 → **不盲点**（√/✕ 位置相近，误点会取消挑战白费体力）
+                self.log('warn',
+                         '√ 模板未命中，未点击（避免误触取消挑战）；'
+                         f'识别到: {texts[:8]}')
+                return False
+            self._stop_event.wait(1)
+        return False
 
     # ── 网络断开检测 ──────────────────────────────────────────
 
@@ -1154,6 +1222,9 @@ class AFKBotCore:
 
             elif phase == 'unknown':
                 self._pending_defeat = False
+                # ── 「挂机极限进度」确认弹窗（真机 2026-11-04）→ 点 √ ──
+                if self._handle_afk_limit_confirm():
+                    continue
                 # ── 暂停界面检测（优先于所有其他逻辑） ──────
                 if self._handle_pause_menu():
                     continue
