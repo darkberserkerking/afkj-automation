@@ -362,6 +362,31 @@ except Exception as _e:
     check('v1.8.16 关闭窗口流程可执行', False, str(_e))
 
 # ══ 汇总 ═══════════════════════════════════════════════════
+# ── v2.3.2：抽屉「更新区」布局（真机 13:16/13:17 截图：按钮被截断 ✗）──
+def _side(w):
+    """取 pack 的 side；**未 pack（隐藏）时返回 None**（"立即更新"未发现新版时隐藏）"""
+    try:
+        return w.pack_info().get('side')
+    except Exception:
+        return None
+
+
+try:
+    _sc, _sa = _side(app._update_btn), _side(app._update_apply_btn)
+    check('v2.3.2 更新按钮竖排（横排会把「立即更新」截成「立即更…」✗）',
+          _sc != 'left' and _sa != 'left',
+          f'check={_sc} apply={_sa}（None=未显示，正常）')
+    _wl = int(app._upd_status_lbl._label.cget('wraplength'))
+    check('v2.3.2 状态标签 wraplength ≤ 230（长错误必须换行不溢出 ✗）',
+          _wl <= 230, f'wraplength={_wl}')
+    check('v2.3.2 下载进度条已创建', hasattr(app, '_upd_progress'))
+    app.update_idletasks()
+    _dw = app._upd_status_lbl.master.winfo_width()
+    check('v2.3.2 抽屉内容宽度（≥180 才够放完整按钮文字；0=抽屉未展开，跳过）',
+          _dw == 0 or _dw >= 180, f'width={_dw}')
+except Exception as _e2:
+    check('v2.3.2 抽屉更新区布局断言', False, str(_e2))
+
 print()
 if FAILED:
     print(f'❌ {len(FAILED)} 项失败: {FAILED}')

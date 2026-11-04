@@ -190,6 +190,26 @@ def _sanitize_traceback(tb: str) -> str:
     return ' | '.join(out)
 
 
+def _friendly_upd_error(err: Exception) -> str:
+    """把底层异常翻译成**短且可换行**的人话（抽屉很窄，长堆栈会被裁 ✗）。"""
+    s = str(err)
+    low = s.lower()
+    if ('unexpected_eof' in low or 'incompleteread' in low
+            or 'violation of protocol' in low):
+        return ('❌ 下载中断：网络/代理不稳定（数据流被掐断）\n'
+                '已自动重试仍失败 → 换网络重试，或到 Release 页手动下载')
+    if '停滞' in s or 'timed out' in low or 'timeout' in low:
+        return ('❌ 下载卡住：20 秒收不到数据\n'
+                '多为代理限速/断流 → 换网络重试，或手动下载')
+    if '403' in s or '401' in s:
+        return '❌ 下载被拒绝（403/401）：请检查 GitHub 访问权限'
+    if '404' in s:
+        return '❌ 下载地址 404：Release 附件可能已被替换/删除'
+    if '不完整' in s or '空文件' in s:
+        return f'❌ {s}\n建议重试，或到 Release 页手动下载'
+    return f'❌ 更新失败：{s[:100]}'
+
+
 class App(ctk.CTk):
     f"""MaaEnd 风格极简界面 {VERSION}"""
 
@@ -1588,7 +1608,10 @@ class App(ctk.CTk):
             font=self._f_small, fg_color=BG_BTN, hover_color=BG_INPUT,
             border_color=BG_BTN, command=self._on_check_update,
         )
-        self._update_btn.pack(side='left')
+        # v2.3.2（真机 2026-11-04 13:16 截图）：抽屉仅 ~256px，
+        # 两个按钮横排各 108px → 「⬇️ 立即更新」被截成「立即更…」✗
+        # → 改**竖排**，各自 fill='x' 占满宽度，文字完整 ✓
+        self._update_btn.pack(fill='x', pady=(0, 4))
         self._update_apply_btn = ctk.CTkButton(
             row, text='⬇️ 立即更新', width=108, height=30,
             font=self._f_small, fg_color=BG_BTN, hover_color=BG_INPUT,
@@ -1601,13 +1624,38 @@ class App(ctk.CTk):
         #（_init_bot_background 会把它当 status_callback 传给引擎，
         #  同名会把它覆盖成 CTkLabel → core 调 set_status() 报
         #  'CTkLabel' object is not callable，v2.2.20 真机即因此崩）
+        # v2.3.2：下载进度条（默认隐藏，下载时显示）
+        self._upd_progress = ctk.CTkProgressBar(
+            drawer_content, height=8, corner_radius=4,
+            progress_color='#10b981',
+        )
+        self._upd_progress.set(0)
+
         self._upd_status_lbl = ctk.CTkLabel(
             drawer_content, text='', font=('Microsoft YaHei UI', 12),
-            text_color=TEXT_DIM, anchor='w', wraplength=300,
+            # v2.3.2：原 wraplength=300 **大于抽屉可用宽度(~210)** → 换行不触发
+            # 长错误文本直接溢出被裁（真机 13:17 截图：「…violation of proto」✗）
+            text_color=TEXT_DIM, anchor='w', wraplength=210,
         )
         self._upd_status_lbl.pack(**pad)
 
     # ── 自动更新 ────────────────────────────────────────────
+
+    def _show_upd_progress(self) -> None:
+        """显示下载进度条（主线程）。"""
+        try:
+            self._upd_progress.set(0)
+            self._upd_progress.pack(fill='x', padx=SPACE_MD,
+                                    pady=(SPACE_SM, 2),
+                                    before=self._upd_status_lbl)
+        except Exception:
+            pass
+
+    def _hide_upd_progress(self) -> None:
+        try:
+            self._upd_progress.pack_forget()
+        except Exception:
+            pass
 
     def _set_update_status(self, text: str, color=None) -> None:
         """更新状态文案（**必须主线程调用**，后台线程走 _post_ui）。"""
@@ -1679,7 +1727,7 @@ class App(ctk.CTk):
         except Exception:
             pass
         try:
-            self._update_apply_btn.pack(side='left', padx=(SPACE_SM, 0))
+            self._update_apply_btn.pack(fill='x', pady=(0, 4))
         except Exception:
             pass
 
@@ -1710,14 +1758,38 @@ class App(ctk.CTk):
         def _work():
             try:
                 from afk_bot import updater
+                total = info.size or 0
+                self._post_ui(self._show_upd_progress)
                 self._post_ui(lambda: self._set_update_status('⏳ 正在下载…'))
-                path = updater.download_asset(info)
-                self._post_ui(lambda: self._set_update_status('⏳ 正在安装（即将重启）…'))
+                _last_t = [0.0]
+
+                def _on_prog(done: int, tot: int) -> None:
+                    """下载进度（**后台线程** → 一律走 _post_ui 投递主线程）。
+                    节流 0.4s，避免每 256KB 刷一次界面 ✗"""
+                    import time as _t
+                    now = _t.time()
+                    finished = bool(tot) and done >= tot
+                    if not finished and (now - _last_t[0]) < 0.4:
+                        return
+                    _last_t[0] = now
+                    pct = (done / tot) if tot else 0.0
+                    mb = done / 1048576
+                    tmb = (tot / 1048576) if tot else 0.0
+                    txt = (f'⏳ 下载中 {pct * 100:.0f}%（{mb:.1f}/{tmb:.1f}MB）'
+                           if tot else f'⏳ 下载中（{mb:.1f}MB）')
+                    self._post_ui(lambda: self._upd_progress.set(pct))
+                    self._post_ui(lambda: self._set_update_status(txt))
+
+                path = updater.download_asset(info, progress=_on_prog)
+                self._post_ui(lambda: self._upd_progress.set(1))
+                self._post_ui(lambda: self._set_update_status(
+                    '✅ 下载完成，正在安装（即将自动重启）…'))
                 updater.launch_updater(path)
                 # 让替换脚本能覆盖 exe：必须真正退出进程
                 self._post_ui(lambda: (self.destroy(), os._exit(0)))
             except Exception as e:
-                msg = f'❌ 更新失败：{e}'
+                msg = _friendly_upd_error(e)
+                self._post_ui(self._hide_upd_progress)
                 self._post_ui(lambda: self._set_update_status(msg))
 
         threading.Thread(target=_work, daemon=True,

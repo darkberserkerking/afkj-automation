@@ -241,6 +241,7 @@ def download_asset(
     timeout: float = 60.0,
     progress: Optional[Callable[[int, int], None]] = None,
     fetch: Optional[Callable[[str, str, float], bytes]] = None,
+    max_retries: int = 4,
 ) -> Path:
     """下载更新包到临时目录，返回文件路径。
 
@@ -270,61 +271,86 @@ def download_asset(
         dest.write_bytes(data)
         return dest
 
-    # 真实下载：**流式分块**（v2.2.30 修复）
-    # ⚠️ 旧实现用 urlopen(...).read() 一次性读完 + timeout=60s 是**整块**限制 →
-    #    136MB 安装包在慢网/代理下必然 TimeoutError ✗（真机测试 2026-10-27 复现）
-    #    改为 256KB 分块读：timeout 只约束"单次读取"，慢网也能下完 ✓
+    # 真实下载：**流式分块 + 断点续传重试**（v2.3.2）
+    # ────────────────────────────────────────────────────────────────
+    # 真机 2026-11-04 13:17 失败：ssl UNEXPECTED_EOF_WHILE_READING
+    #   "occurred in violation of protocol" = **代理/CDN 中途断流** ✗
+    #   旧实现只下**一次** → 136MB 断在 20% 就整包失败 ✗
+    # 现在：失败后用 **HTTP Range 续传**重试（CDN 支持 206 ✓），
+    #   最多 max_retries 次；每次都有停滞看门狗，绝不挂死 ✓
     global _SSL_CTX
     if _SSL_CTX is None:
         _SSL_CTX = _ssl_context()
-    req = urllib.request.Request(info.asset_url, headers=_headers(tok))
     total = info.size or 0
-    done = 0
-    # v2.2.30：停滞看门狗 + 总时长上限
-    #   实测：某些网络/代理会在下到几 MB 后**卡死不动**（既不报错也不结束）✗
-    #   → 没有看门狗的话，更新器会**永远挂住** ✗
     stall_limit = 20.0        # 连续多少秒没收到新数据 → 判定卡死
     total_limit = 1800.0      # 单次下载总时长上限（30 分钟）
-    t_start = time.time()
-    t_last = t_start
-    last_size = 0
-    try:
-        with urllib.request.urlopen(req, timeout=timeout,
-                                    context=_SSL_CTX) as resp, \
-                open(dest, 'wb') as fh:
-            while True:
-                chunk = resp.read(256 * 1024)
-                if not chunk:
-                    break
-                fh.write(chunk)
-                done += len(chunk)
-                now = time.time()
-                if done != last_size:
-                    last_size = done
-                    t_last = now
-                elif now - t_last > stall_limit:
-                    raise UpdateError(
-                        f'下载停滞：{stall_limit:.0f}s 未收到新数据'
-                        f'（已下 {done}/{total} 字节）'
-                        f'—— 可能是网络/代理限制，建议换网络或重试')
-                if now - t_start > total_limit:
-                    raise UpdateError(
-                        f'下载超时：超过 {total_limit / 60:.0f} 分钟'
-                        f'（已下 {done}/{total} 字节）')
-                if progress:
-                    try:
-                        progress(done, total)
-                    except Exception:
-                        pass
-    except urllib.error.HTTPError as e:
-        raise UpdateError(f'下载失败：HTTP {e.code}') from e
-    except Exception as e:
-        raise UpdateError(f'下载失败：{e}') from e
+    last_err: Optional[Exception] = None
 
-    if done == 0:
+    for attempt in range(1, max(1, max_retries) + 1):
+        have = dest.stat().st_size if dest.exists() else 0
+        if total and have >= total:
+            break
+        headers = _headers(tok)
+        if have > 0:
+            headers['Range'] = f'bytes={have}-'
+        req = urllib.request.Request(info.asset_url, headers=headers)
+        done = have
+        t_start = time.time()
+        t_last = t_start
+        last_size = done
+        try:
+            with urllib.request.urlopen(req, timeout=timeout,
+                                        context=_SSL_CTX) as resp, \
+                    open(dest, 'ab' if have > 0 else 'wb') as fh:
+                # 没拿 206（服务器不支持 Range）→ 清空重下
+                if have > 0 and getattr(resp, 'status', 200) != 206:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    done = 0
+                    fh = open(dest, 'wb')
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    done += len(chunk)
+                    now = time.time()
+                    if done != last_size:
+                        last_size = done
+                        t_last = now
+                    elif now - t_last > stall_limit:
+                        raise UpdateError(
+                            f'下载停滞：{stall_limit:.0f}s 无新数据'
+                            f'（{done}/{total}）')
+                    if now - t_start > total_limit:
+                        raise UpdateError(
+                            f'下载超时：超过 {total_limit / 60:.0f} 分钟'
+                            f'（{done}/{total}）')
+                    if progress:
+                        try:
+                            progress(done, total)
+                        except Exception:
+                            pass
+            if total and done < total:
+                # 断流：文件虽然关掉了但不完整 → 下一轮 Range 续传
+                raise UpdateError(
+                    f'连接中断（已下 {done}/{total} 字节）')
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            if attempt >= max_retries:
+                break
+            time.sleep(min(3.0, 1.0 * attempt))   # 退避后再试
+
+    if last_err is not None:
+        raise UpdateError(f'下载失败（已重试 {max_retries} 次）：{last_err}')
+    if not dest.exists() or dest.stat().st_size == 0:
         raise UpdateError('下载失败：空文件')
-    if total and done != total:
-        raise UpdateError(f'下载不完整：{done}/{total} 字节')
+    if total and dest.stat().st_size != total:
+        raise UpdateError(
+            f'下载不完整：{dest.stat().st_size}/{total} 字节')
+
     return dest
 
 
