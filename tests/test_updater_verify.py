@@ -193,6 +193,22 @@ else:
     check('8e CLI --check 在源码模式走 git 分支（不报 Release/Token）',
           _rc == 0 and ('源码' in _out or '提交' in _out), _out.strip()[:80])
 
+# ── 9. GUI 更新按钮接线（真机 2026-11-04 12:56：点「立即更新」毫无反应 ✗）──
+print('── 9. GUI 更新按钮接线 ──')
+import os as _os  # noqa: E402
+_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+with open(_os.path.join(_root, 'afk_gui.py'), encoding='utf-8') as f:
+    _gui_src = f.read()
+
+check('9a exe 分支存了 _pending_update（漏了 → 点更新直接 return ✗）',
+      'self._pending_update = info' in _gui_src)
+check('9b 抽屉只显示两行短文案（长文本会被截断 ✗）',
+      "f'🆕 新版本 {info.tag}'" in _gui_src)
+check('9c 完整更新说明写进日志面板（可滚动）',
+      '更新说明' in _gui_src)
+check('9d 没有 pending 时给出提示，而不是静默 return',
+      '请先点一次「🔄 检查更新」' in _gui_src)
+
 print()
 print(f'══ 自动更新器：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

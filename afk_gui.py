@@ -1642,9 +1642,23 @@ class App(ctk.CTk):
                 else:
                     size = (f'{info.size / 1048576:.1f}MB'
                             if info.size else '大小未知')
+                    # v2.2.35（真机 11-04 12:56）：
+                    # ① **必须存下来**！exe 分支漏了这行 → 点「立即更新」
+                    #    `info is None` 直接 return（界面毫无反应 ✗）
+                    self._pending_update = info
+                    # ② 抽屉很窄：标题只放两行短信息（长文本会被截断 ✗）
                     self._post_ui(lambda: self._on_update_found(
-                        f'🆕 发现新版本 {info.tag}（{size}）',
-                        (info.notes or '')[:120]))
+                        f'🆕 新版本 {info.tag}',
+                        f'{size} · 点下方「立即更新」'))
+                    # ③ 完整更新说明写进**日志面板**（可滚动、不截断）
+                    try:
+                        self._append_log(
+                            f'— 新版本 {info.tag}（{size}）更新说明 —')
+                        for _ln in (info.notes or '').splitlines():
+                            if _ln.strip():
+                                self._append_log('  ' + _ln.strip())
+                    except Exception:
+                        pass
             except Exception as e:
                 msg = f'❌ {e}'
                 self._post_ui(lambda: self._set_update_status(msg))
@@ -1658,6 +1672,13 @@ class App(ctk.CTk):
         self._set_update_status(f'{title}\n{detail}' if detail else title,
                                 color=WARN if 'WARN' in globals() else None)
         try:
+            self._update_apply_btn.configure(fg_color='#10b981',
+                                             hover_color='#059669',
+                                             text_color='white',
+                                             state='normal')
+        except Exception:
+            pass
+        try:
             self._update_apply_btn.pack(side='left', padx=(SPACE_SM, 0))
         except Exception:
             pass
@@ -1666,6 +1687,8 @@ class App(ctk.CTk):
         """下载并替换（仅打包 exe 生效）。"""
         info = getattr(self, '_pending_update', None)
         if info is None:
+            # v2.2.35：不再静默返回（真机 12:56 用户以为按钮坏了 ✗）
+            self._set_update_status('ℹ️ 请先点一次「🔄 检查更新」')
             return
         # v2.2.23：源码模式 → 直接 git pull（无需 Release / 无关 exe 体积）
         if not getattr(sys, 'frozen', False):
