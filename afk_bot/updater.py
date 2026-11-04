@@ -488,7 +488,7 @@ rem ③ 启动新版
 rem   ⚠️ 关键：给新进程一个**独立的 TEMP 根**，让 PyInstaller 解包到
 rem      全新目录 —— 避免与刚退出进程的 _MEI 目录互相踩
 rem      （真机 14:06：Failed to load Python DLL ...\_MEI407882\python311.dll ✗）
-set "NEWTEMP=%TEMP%\afkj_run_%RANDOM%"
+set "NEWTEMP=%TEMP%\\afkj_run_%RANDOM%"
 mkdir "%NEWTEMP%" 2>nul
 set "TEMP=%NEWTEMP%"
 set "TMP=%NEWTEMP%"

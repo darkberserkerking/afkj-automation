@@ -158,6 +158,9 @@ check('7a 脚本里有 PID 等待（tasklist 轮询）',
 check('7b 覆盖用 copy /y（不再跨盘 move）', 'copy /y' in bat and 'new.exe' in bat)
 check('7b2 退出后额外等 3 秒（释放句柄/_MEI 目录）', 'timeout /t 3' in bat)
 check('7b3 新进程独立 TEMP 根（防 _MEI 撞车）', 'set "TEMP=%NEWTEMP%"' in bat)
+# v2.3.6：`\a` 被 Python 当成 BEL → 反斜杠消失，路径变 %TEMP%fkj_run_%RANDOM% ✗
+check('7b3b 脚本里没有控制字符（\\a 必须是 \\\\a）', chr(7) not in bat and chr(8) not in bat)
+check('7b3c NEWTEMP 路径含反斜杠', '%TEMP%\\afkj_run_' in bat)
 check('7b4 自删用 (goto) 2>nul & del（否则 cmd 读不到后续行）',
       '(goto) 2>nul & del "%~f0"' in bat)
 check('7c 覆盖后启动新 exe', 'start ""' in bat)
