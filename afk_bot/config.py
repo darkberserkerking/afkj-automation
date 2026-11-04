@@ -10,11 +10,22 @@ __init__.py 中延迟执行，避免 config 模块直接依赖 pyautogui。
 
 import json
 import os
-from typing import Dict
+from typing import Dict, Tuple
 import sys
 
 # ── 版本号 ──────────────────────────────────────────────────────
-VERSION: str = 'v2.3.0'
+VERSION: str = 'v2.3.1'
+
+
+# ── 礼包 / 广告类弹窗的「退出提示词」（真机 2026-11-04 用户截图）──────────
+# 这类弹窗**可能出现在任何界面（含导航中）** → 由 base / 导航 / 推图主循环 /
+# 结社战线**共用这一处判据**，避免多份漂移 ✗
+# ⚠️ 只点这句**文字本身**（通常在底部中央）；
+#    **绝不点中间的「一键购买」/「¥1250」等购买按钮** ✗✗
+BLINK_POPUP_KWS: Tuple[str, ...] = ('点击空白处',)
+POPUP_EXIT_KWS: Tuple[str, ...] = (
+    '点击屏幕退出', '点击任意处', '点击任意位置',
+)
 
 # v1.8.49：日志级别标志表——下沉到中性层，供 tasks 与 afk_bot 共用
 # （此前 tasks/base.py 与 auto_farm/loop.py 各存一份，属重复真相源）

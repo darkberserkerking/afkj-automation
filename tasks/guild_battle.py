@@ -319,6 +319,17 @@ class GuildBattleTask(BaseTask):
             items = self.bot._ocr_screen()
             texts = self._texts(items)
 
+            # ⓪' 礼包/广告弹窗可能出现在**任何界面**（含战斗中）
+            #     → 不看状态，每轮先扫一眼；只认「点击屏幕退出」类 ✗（不碰结算的「点击空白处」）
+            _popup = self._find_any(items, ('点击屏幕退出', '点击任意处',
+                                            '点击任意位置'), min_conf=0.5)
+            if _popup:
+                self.log(f"[点击] 礼包弹窗「点击屏幕退出」| ({_popup[0]},{_popup[1]})")
+                self.bot.click_at(_popup[0], _popup[1], '结社战线_礼包弹窗退出')
+                self._sleep(1.2)
+                stall = 0
+                continue
+
             # ⓪ 战斗进行中：实测战斗页有文本「跳过」(886,832) → 点它直接结算；
             #    没有「跳过」时（按钮可能隐藏）**耐心等待**，不计入 stall
             _skip = self._find_exact(items, _SKIP_WORD, 0.7)
@@ -416,8 +427,12 @@ class GuildBattleTask(BaseTask):
                 return 'done'
 
             # ④ 其它弹窗（奖励/提示）→ 关掉
-            if any('点击空白处关闭' in t or '确定' == t.strip()
-                   or '取消' == t.strip() for t in texts):
+            # v2.3.1：礼包/广告弹窗（真机 2026-11-04 截图）→ 点「点击屏幕退出」
+            # ⚠️ 只点这句文字本身，绝不点中间的「一键购买」✗
+            if any('点击空白处关闭' in t or '点击屏幕退出' in t
+                   or '点击任意处' in t or '点击任意位置' in t
+                   or '确定' == t.strip() or '取消' == t.strip()
+                   for t in texts):
                 self.log("[点击] 关闭弹窗（点空白）")
                 self.dismiss_blink_popup(items)
                 self._sleep(1.0)

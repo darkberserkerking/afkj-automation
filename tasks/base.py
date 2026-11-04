@@ -12,12 +12,17 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 # import tasks（见审查报告 P0-1），顶层直连会成环 → try 失败时本地兜底
 try:
     from afk_bot.config import LEVEL_PREFIXES as CFG_LEVEL_PREFIXES  # noqa: E402
+    from afk_bot.config import BLINK_POPUP_KWS, POPUP_EXIT_KWS  # noqa: E402
 except Exception:  # ImportError: partially initialized module（循环导入保护）
     CFG_LEVEL_PREFIXES = {
         'info': '[信息]', 'ok': '[成功]', 'warn': '[警告]',
         'error': '[错误]', 'click': '[点击]', 'data': '[数据]',
         'config': '[配置]', 'debug': '[调试]',
     }
+    # v2.3.1：循环导入时 afk_bot.config 也拿不到 → 同款兜底
+    # （tests/test_afk_limit_confirm.py 有一条断言校验与 config 同步 ✓）
+    BLINK_POPUP_KWS = ('点击空白处',)
+    POPUP_EXIT_KWS = ('点击屏幕退出', '点击任意处', '点击任意位置')
 
 # ── v1.8.24 通用返回按钮模板（用户定案：ESC 不万能，须有返回按钮兜底）──
 # 三款式 RGBA 透明背景（黑底灰箭头 / 暗紫底白箭头 / 纯白箭头），
@@ -412,7 +417,9 @@ class BaseTask(ABC):
 
     # ── v1.8.12 全局闪烁弹窗清理（用户规则：全任务通用，禁止判 unknown）──
     # 子串判定覆盖「点击空白处关闭」「点击空白处继续」「点击空白处继续(N秒)」
-    _BLINK_POPUP_KW: str = '点击空白处'
+    # v2.3.1：礼包/广告类弹窗的退出提示（真机 2026-11-04）
+    # ⚠️ 只点这句文字本身，**绝不点中间的购买按钮** ✗
+    _BLINK_POPUP_KWS: Tuple[str, ...] = BLINK_POPUP_KWS + POPUP_EXIT_KWS
 
     # ── v2.0.4（用户 18:38）退出确认弹窗（ESC 陷阱）：最高优先级 ──
     _QUIT_DLG_KW: str = '确定要退出游戏'
@@ -499,26 +506,21 @@ class BaseTask(ABC):
         # 保证它优先于其他任务/画面被处理（零侵入覆盖全部任务主循环）
         if self._dismiss_quit_dialog(items):
             return True
-        if items is not None:
-            pos = self.bot.find_text(items, self._BLINK_POPUP_KW, min_conf=0.5)
-            if pos:
-                self.log(
-                    f"[信息] 闪烁弹窗命中「点击空白处」，点击 ({pos[0]},{pos[1]})"
-                )
-                self.bot.click_at(pos[0], pos[1], '闪烁弹窗_点空白')
-                self._sleep(1.0)
-                return True
+        def _try_hit(_items) -> bool:
+            for _kw in self._BLINK_POPUP_KWS:
+                _pos = self.bot.find_text(_items, _kw, min_conf=0.5)
+                if _pos:
+                    self.log(f"[信息] 闪烁弹窗命中「{_kw}」，点击 "
+                             f"({_pos[0]},{_pos[1]})")
+                    self.bot.click_at(_pos[0], _pos[1], '闪烁弹窗_点空白')
+                    self._sleep(1.0)
+                    return True
             return False
+
+        if items is not None:
+            return _try_hit(items)
         for _ in range(max(1, max_ocr)):
-            pos = self.bot.find_text(
-                self.bot._ocr_screen(), self._BLINK_POPUP_KW, min_conf=0.5
-            )
-            if pos:
-                self.log(
-                    f"[信息] 闪烁弹窗命中「点击空白处」，点击 ({pos[0]},{pos[1]})"
-                )
-                self.bot.click_at(pos[0], pos[1], '闪烁弹窗_点空白')
-                self._sleep(1.0)
+            if _try_hit(self.bot._ocr_screen()):
                 return True
             self._sleep(interval)
         return False

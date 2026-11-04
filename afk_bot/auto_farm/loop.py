@@ -22,7 +22,8 @@ import win32con
 import win32api
 
 from afk_bot.config import LEVEL_PREFIXES
-from afk_bot.config import VERSION, _SNAP_TRIM, _BTN_POS, _BTN_POS_PORTRAIT
+from afk_bot.config import (VERSION, _SNAP_TRIM, _BTN_POS,
+                            _BTN_POS_PORTRAIT, POPUP_EXIT_KWS)
 from afk_bot.infra.coordinate import CoordSystem
 from afk_bot.infra.screen import ScreenCapture
 from afk_bot.infra.input import InputController
@@ -50,6 +51,9 @@ _AFK_LIMIT_CHECK_SCALE_RANGE: Tuple[float, float, float] = (0.8, 1.3, 0.1)
 # 判据词：该类弹窗文字 1 秒周期闪烁、OCR 可能跨行截断 → 补截断形式
 # ⚠️ 结算页是「再次挑战」，字面不同 → **不会**命中下面的判据 ✓
 # （否则会把正常结算误判成弹窗而点 √）
+# 「礼包/广告类弹窗」的退出提示词（真机 2026-11-04 用户截图）
+# ⚠️ 只点这句**文字本身**（底部中央）；绝不能点中间的「一键购买」✗
+
 _AFK_LIMIT_DIALOG_MARKS: Tuple[str, ...] = (
     '是否确认继续挑战', '是否确认继续挑', '确认继续挑战',
     '挂机极限进度', '本日极限进度', '极限进度',
@@ -461,6 +465,30 @@ class AFKBotCore:
         self._log('info', 'ESC未生效，尝试点击空白处')
         self._input_controller.click_abs(960, 540)
 
+    def _dismiss_popup_exit(self, items=None) -> bool:
+        """礼包 / 广告类弹窗 → 点「点击屏幕退出」关闭（真机 2026-11-04）。
+
+        这类弹窗**可能出现在任何界面（含战斗、结算、导航中）** ✓
+        ⚠️ 只点这句**文字本身**；绝不点中间的「一键购买」/「¥1250」等按钮 ✗✗
+
+        Returns:
+            bool: True=命中并已点击
+        """
+        try:
+            _items = (items if items is not None
+                      else self._screen_capture.ocr_screen())
+        except Exception as _e:
+            self._log('info', f'[调试] _dismiss_popup_exit OCR 异常: {_e}')
+            return False
+        for _kw in POPUP_EXIT_KWS:
+            _p = self.find_text(_items, _kw, min_conf=0.5)
+            if _p:
+                self._log('info', f'弹窗「{_kw}」→ 点击关闭 ({_p[0]},{_p[1]})')
+                self._click_abs(_p[0], _p[1])
+                self._stop_event.wait(1.2)
+                return True
+        return False
+
     def _handle_afk_limit_confirm(self) -> bool:
         """处理「挂机极限进度」确认弹窗 → 点 **√**（继续挑战）。
 
@@ -487,6 +515,9 @@ class AFKBotCore:
                     _AFK_LIMIT_CHECK_TPL, _AFK_LIMIT_CHECK_THRESHOLD,
                     scale_range=_AFK_LIMIT_CHECK_SCALE_RANGE)
                 if ok:
+                    # v2.3.1：核心类**没有 self.bot**（那是 task 层的属性 ✗）
+                    # 必须用自身的 _click_abs（真机点不了 / 单测被 mock 掩盖 ✗）
+                    self._click_abs(ok[0], ok[1])
                     self.log('info', '已点击 √（继续挑战）')
                     self._stop_event.wait(1.5)
                     return True
@@ -783,6 +814,11 @@ class AFKBotCore:
         while not self._stop:
             self._pause.wait()
             self._check_network_disconnect()
+
+            # v2.3.1：礼包/广告弹窗可能出现在**任何界面**（含战斗/结算中）
+            # → 不看 phase，每轮先扫一眼（只认「点击屏幕退出」类，不碰结算的「点击空白处」✗）
+            if self._dismiss_popup_exit():
+                continue
 
             # 任务结束指标检查（时间/轮次，OR 逻辑；任一满足即结束）
             if self._task_completion_reached():
@@ -1225,6 +1261,11 @@ class AFKBotCore:
                 # ── 「挂机极限进度」确认弹窗（真机 2026-11-04）→ 点 √ ──
                 if self._handle_afk_limit_confirm():
                     continue
+                # ── 礼包/广告类弹窗 → 点「点击屏幕退出」关闭 ────
+                if self._dismiss_popup_exit():
+                    stall = 0
+                    continue
+
                 # ── 暂停界面检测（优先于所有其他逻辑） ──────
                 if self._handle_pause_menu():
                     continue

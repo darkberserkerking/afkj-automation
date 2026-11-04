@@ -51,6 +51,11 @@ def _items(texts):
             for i, t in enumerate(texts)]
 
 
+def core_clicks_ok(core) -> bool:
+    """断言：模板命中后**必须真的点击**（_click_abs），且用自身接口。"""
+    return bool(getattr(core, 'clicked', []))
+
+
 print('═' * 62)
 print('挂机极限进度弹窗 定向验证（v2.2.32）')
 print('═' * 62)
@@ -103,6 +108,8 @@ def _mk_core(items, template_ok=True):
     core._stop_event = _Ev()
     core.logs = []
     core.tpl_calls = []
+    core.clicked = []
+    core._click_abs = lambda x, y: core.clicked.append((x, y))
     core.log = lambda *a: core.logs.append(
         ' '.join(str(x) for x in a))
     core.template_match = lambda tpl, threshold=0.8, scale_range=None, **kw: (
@@ -125,6 +132,10 @@ check('3c 模板参数正确（阈值/尺度）',
       str(_c.tpl_calls))
 check('3d 日志含"点 √ 继续挑战"',
       any('√' in m for m in _c.logs), str(_c.logs[:3]))
+# ⚠️ 真机踩过：核心类没有 self.bot → 用 self.bot.click_at 会 AttributeError
+#    （mock 恰好提供了 bot 才没暴露 ✗）→ 断言**确实用 _click_abs 点了**
+check('3d2 用 _click_abs 真正点击了（核心类无 self.bot ✗）',
+      core_clicks_ok(_c), f'clicked={_c.clicked}')
 
 # ② 模板没命中 → 不盲点
 _c2 = _mk_core(_items(DIALOG), template_ok=False)
@@ -222,6 +233,34 @@ with open(os.path.join(ROOT, 'afk_bot', 'auto_farm', 'loop.py'),
     _loop_src = f.read()
 check('5e 核心：run_auto_farm 入口先查停止信号',
       '不进入推图循环' in _loop_src)
+
+print('\n── 6. 礼包弹窗判据：config / base / loop 三处同步（真机 2026-11-04）──')
+import afk_bot.config as _C  # noqa: E402
+import tasks.base as _B      # noqa: E402
+from afk_bot.auto_farm import loop as _L  # noqa: E402
+
+check('6a config 定义了礼包退出词（点击屏幕退出 等）',
+      '点击屏幕退出' in _C.POPUP_EXIT_KWS, str(_C.POPUP_EXIT_KWS))
+check('6b 结算类「点击空白处」**不**在礼包词里（否则会抢结算流程 ✗）',
+      '点击空白处' not in _C.POPUP_EXIT_KWS, str(_C.POPUP_EXIT_KWS))
+check('6c base 的通用弹窗词 = 结算类 + 礼包类（合并）',
+      tuple(_B.BaseTask._BLINK_POPUP_KWS)
+      == tuple(_C.BLINK_POPUP_KWS) + tuple(_C.POPUP_EXIT_KWS),
+      str(_B.BaseTask._BLINK_POPUP_KWS))
+check('6d base 的 except 兜底与 config 同步（循环导入时也一致）',
+      all(w in _B.POPUP_EXIT_KWS for w in _C.POPUP_EXIT_KWS),
+      f'base兜底={_B.POPUP_EXIT_KWS}')
+check('6e loop 有 _dismiss_popup_exit 且用 config 判据',
+      hasattr(_L.AFKBotCore, '_dismiss_popup_exit'))
+_src = open(os.path.join(ROOT, 'afk_bot', 'auto_farm', 'loop.py'), encoding='utf-8').read()
+check('6f loop 主循环每轮开头会扫礼包弹窗（不看 phase）',
+      '不看 phase，每轮先扫一眼' in _src)
+_g = open(os.path.join(ROOT, 'tasks', 'guild_battle.py'), encoding='utf-8').read()
+check('6g 结社战线主循环也每轮扫（可能出现在战斗中）',
+      '礼包/广告弹窗可能出现在**任何界面**' in _g)
+_n = open(os.path.join(ROOT, 'tasks', 'global_nav.py'), encoding='utf-8').read()
+check('6h 全局导航「未识别画面」也认礼包弹窗',
+      '点击屏幕退出' in _n)
 
 print()
 print(f'══ 挂机极限弹窗：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

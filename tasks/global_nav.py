@@ -320,11 +320,19 @@ class GlobalNavigator:
                         continue
                     self._log('[警告] √ 模板未命中（挂机极限弹窗），继续等待')
 
-                _bc = self.bot.find_text(
-                    items, '点击空白处', min_conf=0.5)
+                # v2.3.1：礼包/广告类弹窗也是「未识别画面」的常客
+                # （真机 2026-11-04 用户截图：底部「点击屏幕退出」）
+                _bc = None
+                _bc_kw = ''
+                for _kw in ('点击空白处', '点击屏幕退出',
+                            '点击任意处', '点击任意位置'):
+                    _bc = self.bot.find_text(items, _kw, min_conf=0.5)
+                    if _bc:
+                        _bc_kw = _kw
+                        break
                 if _bc:
                     self._log(
-                        f"[信息] 未识别画面含「点击空白处」，点掉重识")
+                        f"[信息] 未识别画面含「{_bc_kw}」，点掉重识")
                     self.bot.click_at(_bc[0], _bc[1], '全局导航_点空白')
                     self._sleep()
                     self._unknown_streak = 0
