@@ -49,9 +49,21 @@ _READY_WORDS: Tuple[str, ...] = ('通关阵容', '一键采用')
 # 真机 2026-11-04 15:15：**结算页完全没被识别** ✗ —— 任务卡在「战斗中」空转 5 分钟
 # 根因：「战斗胜利/战斗失败」是**游戏大字艺术字**，OCR 常读不出 ✗（项目老经验）
 # 而底部按钮「再次挑战 / 继续挑战」是**清晰正体字** ✓ → 也作为结算判据
+# ── 结算页判据（v2.3.7 双向加固）────────────────────────────────
+# ① 艺术字标题（**弱信号**：游戏大字常读不出 ✗，但不能丢）
+_RESULT_TITLE_WORDS: Tuple[str, ...] = ('战斗胜利', '战斗失败')
+# ② 底部按钮（**强信号**：正体字，OCR 可靠 ✓）
+_RESULT_BTN_WORDS: Tuple[str, ...] = ('继续挑战', '再次挑战')
+# ③ 胜利页独有词（12:46 胜利截图有「推荐提升」，15:15 失败截图没有 ✓）
+_WIN_ONLY_WORDS: Tuple[str, ...] = ('推荐提升',)
 _RESULT_WORDS: Tuple[str, ...] = (
-    '战斗胜利', '战斗失败',      # 艺术字（能读到最好）
-    '再次挑战', '继续挑战',      # **按钮正体字（可靠，主判据）** ✓
+    _RESULT_TITLE_WORDS + _RESULT_BTN_WORDS + _WIN_ONLY_WORDS
+)
+# ④ **反向排除**：出现这些词说明是主界面/备战/目录页，绝不可能是结算
+_NOT_RESULT_WORDS: Tuple[str, ...] = (
+    '扫荡', '通关阵容', '一键采用', '玩法目录', '公会玩法', '常规玩法',
+    # 挂机极限进度弹窗写着「是否确认**继续挑战**？」→ 会撞"继续挑战" ✗
+    '是否确认', '极限进度',
 )
 # 真机 2026-11-04 12:46（用户截图 + 日志）：
 #   **胜利**结算页 = 「**继续挑战**」（绿色大按钮）
@@ -167,6 +179,22 @@ class GuildBattleTask(BaseTask):
                     and any(w in str(it[2]) for w in words)):
                 return (it[1], it[0])
         return None
+
+    def _is_result_page(self, texts: List[str]) -> bool:
+        """是否是**战斗结算页**（v2.3.7：双向加固，兼顾漏判与误判）。
+
+        **不漏判**（三路任一命中即可）：
+          ① 艺术字标题「战斗胜利 / 战斗失败」（弱信号，可能读不出）
+          ② 底部按钮「继续挑战 / 再次挑战」（强信号，正体字可靠）
+          ③ 胜利页独有词「推荐提升」
+        **不误判**：
+          ④ 反向排除——含「扫荡/通关阵容/一键采用/玩法目录/公会玩法/常规玩法」
+             的页面（主界面、备战、目录）**一律不算结算** ✗
+        """
+        _t = list(texts or [])
+        if any(w in t for t in _t for w in _NOT_RESULT_WORDS):
+            return False
+        return any(w in t for t in _t for w in _RESULT_WORDS)
 
     def _is_main(self, items: List[Tuple], texts: List[str]) -> bool:
         """结社战线**主界面**：标题 +（扫荡｜挑战）按钮**同时**存在。
@@ -352,11 +380,12 @@ class GuildBattleTask(BaseTask):
 
             # ① 战斗结算页：**胜利 → 「继续挑战」 / 失败 → 「再次挑战」**
             #    （真机 2026-11-04 12:46 用户截图：胜利页大按钮是「继续挑战」）
-            if any(w in t for t in texts for w in _RESULT_WORDS):
-                # 胜负：优先艺术字；读不出时用**按钮文字反推** ✓
-                # （胜利页按钮=「继续挑战」，失败页=「再次挑战」）
+            if self._is_result_page(texts):
+                # 胜负：三路任一命中即判胜（v2.3.7：防漏判成失败 ✗）
+                #  ① 艺术字「战斗胜利」 ② 按钮「继续挑战」 ③ 胜利独有「推荐提升」
                 win = (any('战斗胜利' in t for t in texts)
-                       or any('继续挑战' in t for t in texts))
+                       or any('继续挑战' in t for t in texts)
+                       or any('推荐提升' in t for t in texts))
                 # 同一结算页只计一次（真机 12:46：关不掉结算页 → 重复计 9 次 ✗）
                 if not counted_settle:
                     if win:

@@ -60,12 +60,15 @@ app._render_task_rows()
 app.update_idletasks()
 
 FAILED = []
+PASSED = [0]          # 用列表做可变计数器（避免 global）
 
 
 def check(name, cond, extra=''):
     ok = bool(cond)
     if not ok:
         FAILED.append(name)
+    else:
+        PASSED[0] += 1
     print(f"[{'PASS' if ok else 'FAIL'}] {name}  {extra}", flush=True)
 
 
@@ -391,5 +394,5 @@ print()
 if FAILED:
     print(f'❌ {len(FAILED)} 项失败: {FAILED}')
     sys.exit(1)
-print('✅ 全部通过')
+print(f'✅ 全部通过（通过 {PASSED[0]}/{PASSED[0]}）')
 sys.exit(0)
