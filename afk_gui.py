@@ -2002,18 +2002,7 @@ class App(ctk.CTk):
     # ────────────────────────────────────────────────────────────────
     #  控制按钮
 
-    _START_GUARD_SEC: float = 2.0   # 停止后这段时间内的"启动"点击视为误触
-
     def _on_start(self):
-        # v2.2.33（真机 2026-11-04 12:21）：_on_stop 会立刻把按钮变回「▶ 运行」，
-        # 用户以为没停、再点一下 = **又启动了**（日志：12:21:36 [停止] →
-        # 12:21:37 启动 ✗）。停止后 _START_GUARD_SEC 内忽略启动点击。
-        _ts = getattr(self, '_stop_ts', 0.0)
-        if _ts and (time.time() - _ts) < self._START_GUARD_SEC:
-            self._append_log(
-                f'[提示] 刚停止 {time.time() - _ts:.1f}s，'
-                f'{self._START_GUARD_SEC:.0f}s 内忽略启动点击（防误触）')
-            return
         if not self._bot_ready:
             self._append_log('[信息] OCR 引擎初始化中，请稍候...')
             return
@@ -2132,23 +2121,28 @@ class App(ctk.CTk):
         self._on_stop()
 
     def _on_stop(self):
-        # v2.2.33：记录停止时刻（配合 _on_start 的防误触守卫）
-        try:
-            self._stop_ts = time.time()
-        except Exception:
-            pass
+        # v2.2.33（真机 2026-11-04 12:21 用户实测）：停止期间**不要**立刻把按钮
+        # 切回「▶ 运行」✗ —— 旧行为会让用户以为没停、再点一下又启动，
+        # 或点了却提示"上一次任务尚未结束"（线程还没退 ✗）
+        # 现在：显示「⏳ 正在停止…」并禁用；等线程真正结束后由
+        # _bot_thread_wrapper 调 _reset_buttons() 复位 ✓
         self._running = False
         if self._bot:
             self._bot.stop()
-        self._reset_buttons()
         self._update_status(running=False)
-        self._append_log('[停止]')
+        self._append_log('[停止] 正在停止…（等待当前任务退出）')
+        try:
+            self._btn_main.configure(text='⏳ 正在停止…', state='disabled',
+                                     fg_color='#9ca3af',
+                                     hover_color='#9ca3af')
+        except Exception:
+            self._reset_buttons()
 
     def _reset_buttons(self):
         """重置控制按钮到初始状态（▶ 运行）"""
         self._btn_main.configure(text='▶ 运行', fg_color=DANGER,
                                 hover_color='#f87171', text_color='white',
-                                command=self._on_start)
+                                state='normal', command=self._on_start)
         # 停止计时器刷新
         if self._timer_id:
             self.after_cancel(self._timer_id)

@@ -175,33 +175,53 @@ check('4b 模板名一致', _GN._AFK_LIMIT_CHECK_TPL == _LP._AFK_LIMIT_CHECK_TPL
 check('4c 阈值一致', _GN._AFK_LIMIT_CHECK_THRESHOLD == _LP._AFK_LIMIT_CHECK_THRESHOLD)
 check('4d 尺度范围一致', _GN._AFK_LIMIT_CHECK_SCALE_RANGE == _LP._AFK_LIMIT_CHECK_SCALE_RANGE)
 
-print('\n── 5. 停止后的防误触重启守卫（真机 12:21：停→1 秒后又启动 ✗）──')
-import time as _time  # noqa: E402
+print('\n── 5. 停止链路（真机 12:21：停了还继续跑 ✗ / 按钮提前复位 ✗）──')
 import afk_gui as _GUI  # noqa: E402
+
+
+class _Btn:
+    def __init__(self):
+        self.kw = {}
+
+    def configure(self, **kw):
+        self.kw.update(kw)
+
 
 _a = _GUI.App.__new__(_GUI.App)
 _a.logs = []
 _a._append_log = lambda m: _a.logs.append(m)
-_a._bot_ready = True
-_a._running = False
-_a._bot_thread = None
+_a._bot = None
+_a._btn_main = _Btn()
+_a._update_status = lambda **kw: None
+_a._reset_buttons = lambda: _a.logs.append('RESET_CALLED')
+_GUI.App._on_stop(_a)
+check('5a 停止时按钮变「⏳ 正在停止…」且禁用（不再立刻切回"运行" ✗）',
+      str(_a._btn_main.kw.get('text', '')).startswith('⏳')
+      and _a._btn_main.kw.get('state') == 'disabled',
+      str(_a._btn_main.kw))
+check('5b 停止时**不**调用 _reset_buttons（避免提前复位让人误以为已停）',
+      'RESET_CALLED' not in _a.logs, str(_a.logs))
 
-_a._stop_ts = _time.time()          # 刚点过停止
-_GUI.App._on_start(_a)
-check('5a 刚停止（0s）→ 启动被拦下并记提示',
-      any('防误触' in m for m in _a.logs), str(_a.logs[:2]))
+# 5c：真正的复位（线程结束由 wrapper 调用）→ 必须是「▶ 运行」+ normal
+_b = _GUI.App.__new__(_GUI.App)
+_b._btn_main = _Btn()
+_b._timer_id = None
+_GUI.App._reset_buttons(_b)
+check('5c 线程结束后复位为「▶ 运行」+ state=normal',
+      _b._btn_main.kw.get('text') == '▶ 运行'
+      and _b._btn_main.kw.get('state') == 'normal',
+      str(_b._btn_main.kw))
 
-_a.logs.clear()
-_a._stop_ts = _time.time() - 5.0    # 5 秒前停的
-_before = len(_a.logs)
-try:
-    _GUI.App._on_start(_a)          # 应继续往下走（缺属性会抛，说明没被拦）
-except Exception:
-    pass
-check('5b 停止已过 5 秒 → 不再被守卫拦截',
-      not any('防误触' in m for m in _a.logs), str(_a.logs[:2]))
-check('5c 守卫窗口 = 2 秒', _GUI.App._START_GUARD_SEC == 2.0,
-      str(_GUI.App._START_GUARD_SEC))
+# 5d/5e：停止信号必须在"导航返回后"和"核心入口"两处都检查（真机 12:21 的坑）
+with open(os.path.join(ROOT, 'tasks', 'auto_farm.py'), encoding='utf-8') as f:
+    _nav_src = f.read()
+check('5d 任务层：导航返回后检查停止（防"停了还进推图" ✗）',
+      '已收到停止信号（导航返回后）' in _nav_src)
+with open(os.path.join(ROOT, 'afk_bot', 'auto_farm', 'loop.py'),
+          encoding='utf-8') as f:
+    _loop_src = f.read()
+check('5e 核心：run_auto_farm 入口先查停止信号',
+      '不进入推图循环' in _loop_src)
 
 print()
 print(f'══ 挂机极限弹窗：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

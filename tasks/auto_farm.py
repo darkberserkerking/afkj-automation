@@ -471,6 +471,12 @@ class AutoFarmTask(BaseTask):
                 self._claim_idle_rewards()
             else:
                 self.log("[警告] 导航未达挂机关卡页，跳过挂机收益领取")
+            # v2.2.33（真机 2026-11-04 12:21）：导航耗时数秒，期间用户可能已
+            # 点停止 → 旧代码**不检查**直接进 run_auto_farm ✗（日志里停止后
+            # 仍出现「任务启动」「AFKJ自动化工具…启动」= 又跑了一整套 ✗）
+            if self.check_stop():
+                self.log("[信息] 已收到停止信号（导航返回后）→ 不再进入推图")
+                return self._stop_result()
         result = self.bot.run_auto_farm(
             max_time=self.max_time,
             max_turns=self.max_turns,

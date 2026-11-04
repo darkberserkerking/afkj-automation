@@ -1361,6 +1361,13 @@ class AFKBotCore:
             v1.5.0 起运行模式与战斗模式已固定（交替模式 + 逐次战斗），
             本方法**不接受模式参数**。
         """
+        # v2.2.33（真机 2026-11-04 12:21）：入口先看停止信号。
+        # 旧行为：任务层导航返回后直接调本函数 → 即使用户已点停止，仍会打印
+        # 启动横幅、重新 find_and_focus、再走一遍启动导航 ✗（日志可见）
+        if self._stop or self._stop_event.is_set():
+            self._log('info', '已收到停止信号，不进入推图循环')
+            return 'stopped'
+
         # 注入任务结束指标（时间/轮次 OR 逻辑 + 全部通关兜底）
         self._task_max_time = max_time
         self._task_max_turns = max_turns
