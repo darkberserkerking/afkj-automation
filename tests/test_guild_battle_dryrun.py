@@ -239,6 +239,25 @@ probe6 = t6.startup_probe()
 check('6c 在公会玩法目录启动 → probe 不返回 ready（会先去导航）',
       probe6 != 'ready', f'probe={probe6!r}')
 
+# ── 8. 【真机回归 14:07】公会玩法页 ≠ 备战界面 ──
+# 该页「公会争霸战」卡片下写着「派遣**编队**中」→ 旧判据 _READY_WORDS 含"编队"
+# → probe 判 ready、主循环走备战分支（通关阵容/一键采用/F 全在瞎按 ✗）
+GUILD_PAGE = F('新锐', '公会征锋', '结社战线', '×0/4', '狩猎悬赏',
+               '沙盘演兵', '公会争霸战', '派遣编队中', '常规玩法', '公会玩法')
+_t8 = GuildBattleTask.__new__(GuildBattleTask)
+_texts8 = [str(x[2]) for x in GUILD_PAGE]
+check('8a 公会玩法页（含「派遣编队中」）→ 不算备战界面',
+      not any(w in t for t in _texts8
+              for w in ('通关阵容', '一键采用')),
+      '「编队」不得作判据（源卡片干扰）')
+check('8b 该页也不算结社战线主界面（无扫荡/挑战按钮）',
+      _t8._is_main(GUILD_PAGE, _texts8) is False)
+# probe 走真实实现：公会玩法页 → 不能 ready
+_t8b, _b8 = _mk([GUILD_PAGE])
+_t8b.startup_probe = GuildBattleTask.startup_probe.__get__(_t8b, GuildBattleTask)
+check('8c 在公会玩法页启动 → probe 不返回 ready（会先导航）',
+      _t8b.startup_probe() != 'ready')
+
 # ── 7. 【真机回归】同一结算页被重复读到 → 只计一次 ──
 # 真机 12:46：胜利页找不到按钮 → 点空白关不掉 → 同一页读了 9 次
 # → 记成「9 连胜」✗
