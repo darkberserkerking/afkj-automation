@@ -451,7 +451,18 @@ def current_exe() -> Path:
 
 
 _BAT_TEMPLATE = """@echo off
+rem ══════════════════════════════════════════════════════════════════
+rem  AFKJ 更新替换脚本（v2.3.4 重写）
+rem  真机 2026-11-04 14:06 两个报错：
+rem   ① The batch file cannot be found  → 自删太早，cmd 读不到后续行 ✗
+rem   ② Failed to load Python DLL ..._MEI407882\python311.dll
+rem      → 覆盖/启动太快，新旧 PyInstaller 解包目录互相踩 ✗
+rem  修法：① 等进程退出后再**多等 3 秒**（让杀软/文件句柄释放）
+rem         ② 用 copy /y（不跨盘 move），成功后再删临时文件
+rem         ③ 自删用经典写法 (goto) 2>nul & del "%~f0"（先让 cmd 停止读本文件）
+rem ══════════════════════════════════════════════════════════════════
 chcp 65001 >nul
+setlocal
 set "PID={pid}"
 set "NEW={new_exe}"
 set "OLD={old_exe}"
@@ -461,15 +472,31 @@ if not errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait
 )
-move /y "%NEW%" "%OLD%" >nul
+rem ① 进程已退；再等 3 秒让句柄/临时解包目录释放
+timeout /t 3 /nobreak >nul
+rem ② 复制覆盖（跨盘/跨目录都稳），成功后删掉临时文件
+copy /y "%NEW%" "%OLD%" >nul
 if errorlevel 1 (
-    echo [AFKJ] 覆盖失败，请手动复制：%NEW% -^> %OLD%
+    echo [AFKJ] 覆盖失败，请手动复制：
+    echo    从：%NEW%
+    echo    到：%OLD%
     pause
     exit /b 1
 )
+del /f /q "%NEW%" >nul 2>&1
+rem ③ 启动新版
+rem   ⚠️ 关键：给新进程一个**独立的 TEMP 根**，让 PyInstaller 解包到
+rem      全新目录 —— 避免与刚退出进程的 _MEI 目录互相踩
+rem      （真机 14:06：Failed to load Python DLL ...\_MEI407882\python311.dll ✗）
+set "NEWTEMP=%TEMP%\afkj_run_%RANDOM%"
+mkdir "%NEWTEMP%" 2>nul
+set "TEMP=%NEWTEMP%"
+set "TMP=%NEWTEMP%"
 start "" "%OLD%"
 timeout /t 2 /nobreak >nul
-del "%~f0" >nul 2>&1
+rem ④ 自删：必须先 (goto) 让 cmd 停止读取本批处理，否则报
+rem    "The batch file cannot be found" ✗
+(goto) 2>nul & del "%~f0"
 """
 
 

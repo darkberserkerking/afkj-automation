@@ -153,7 +153,13 @@ bat = U.build_updater_script(Path(r'C:\tmp\new.exe'),
                              Path(r'C:\tmp\old.exe'), pid=12345)
 check('7a 脚本里有 PID 等待（tasklist 轮询）',
       'set "PID=12345"' in bat and 'tasklist' in bat and ':wait' in bat)
-check('7b 覆盖用 move /y', 'move /y' in bat and 'new.exe' in bat)
+# v2.3.4（真机 14:06）："batch file cannot be found" + "Failed to load Python DLL _MEI..."
+# → 覆盖改 copy /y（跨盘稳）；退出后多等 3 秒；新进程独立 TEMP；自删用 (goto) 写法
+check('7b 覆盖用 copy /y（不再跨盘 move）', 'copy /y' in bat and 'new.exe' in bat)
+check('7b2 退出后额外等 3 秒（释放句柄/_MEI 目录）', 'timeout /t 3' in bat)
+check('7b3 新进程独立 TEMP 根（防 _MEI 撞车）', 'set "TEMP=%NEWTEMP%"' in bat)
+check('7b4 自删用 (goto) 2>nul & del（否则 cmd 读不到后续行）',
+      '(goto) 2>nul & del "%~f0"' in bat)
 check('7c 覆盖后启动新 exe', 'start ""' in bat)
 check('7d 脚本自删', 'del "%~f0"' in bat)
 check('7e cp65001（中文路径不乱码）', 'chcp 65001' in bat)
