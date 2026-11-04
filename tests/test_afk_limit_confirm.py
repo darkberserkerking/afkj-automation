@@ -165,6 +165,44 @@ check('3j 首帧读不到（闪烁暗相）→ 隔 1s 再扫 → 能识别并点
       _ok5 is True and len(_c5.tpl_calls) == 1,
       f'ret={_ok5!r} calls={len(_c5.tpl_calls)} waits={_c5._stop_event.waited}')
 
+print('\n── 4. 导航层与主循环的判据必须同步（防两处漂移）──')
+from tasks import global_nav as _GN  # noqa: E402
+from afk_bot.auto_farm import loop as _LP  # noqa: E402
+
+check('4a 判据词两边一致', tuple(_GN._AFK_LIMIT_MARKS) == tuple(_LP._AFK_LIMIT_DIALOG_MARKS),
+      f'nav={_GN._AFK_LIMIT_MARKS}\nloop={_LP._AFK_LIMIT_DIALOG_MARKS}')
+check('4b 模板名一致', _GN._AFK_LIMIT_CHECK_TPL == _LP._AFK_LIMIT_CHECK_TPL)
+check('4c 阈值一致', _GN._AFK_LIMIT_CHECK_THRESHOLD == _LP._AFK_LIMIT_CHECK_THRESHOLD)
+check('4d 尺度范围一致', _GN._AFK_LIMIT_CHECK_SCALE_RANGE == _LP._AFK_LIMIT_CHECK_SCALE_RANGE)
+
+print('\n── 5. 停止后的防误触重启守卫（真机 12:21：停→1 秒后又启动 ✗）──')
+import time as _time  # noqa: E402
+import afk_gui as _GUI  # noqa: E402
+
+_a = _GUI.App.__new__(_GUI.App)
+_a.logs = []
+_a._append_log = lambda m: _a.logs.append(m)
+_a._bot_ready = True
+_a._running = False
+_a._bot_thread = None
+
+_a._stop_ts = _time.time()          # 刚点过停止
+_GUI.App._on_start(_a)
+check('5a 刚停止（0s）→ 启动被拦下并记提示',
+      any('防误触' in m for m in _a.logs), str(_a.logs[:2]))
+
+_a.logs.clear()
+_a._stop_ts = _time.time() - 5.0    # 5 秒前停的
+_before = len(_a.logs)
+try:
+    _GUI.App._on_start(_a)          # 应继续往下走（缺属性会抛，说明没被拦）
+except Exception:
+    pass
+check('5b 停止已过 5 秒 → 不再被守卫拦截',
+      not any('防误触' in m for m in _a.logs), str(_a.logs[:2]))
+check('5c 守卫窗口 = 2 秒', _GUI.App._START_GUARD_SEC == 2.0,
+      str(_GUI.App._START_GUARD_SEC))
+
 print()
 print(f'══ 挂机极限弹窗：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

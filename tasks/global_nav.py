@@ -112,6 +112,19 @@ BOTTOM_BUTTONS: Dict[str, str] = {
 _ESC_AFTER: int = 2
 _UNKNOWN_WAIT_MAX: int = 4   # 未识别画面按转场假设等待的最大帧数（容忍 ~8s 过场）
 
+# ── 「挂机极限进度」确认弹窗（真机 2026-11-04 12:21 用户截图）──────────
+# 该弹窗会**卡在导航里**：画面不属任何已知界面 → 只等 4 帧就脱离，
+# 结果既到不了挂机关卡页、也进不了主循环里的处理器 ✗
+# 判据/参数与 afk_bot/auto_farm/loop.py 的 _AFK_LIMIT_* 保持一致
+# （tests/test_afk_limit_confirm.py 有一条断言校验两边同步 ✓）
+_AFK_LIMIT_MARKS: Tuple[str, ...] = (
+    '是否确认继续挑战', '是否确认继续挑', '确认继续挑战',
+    '挂机极限进度', '本日极限进度', '极限进度',
+)
+_AFK_LIMIT_CHECK_TPL: str = 'btn_confirm_check.png'
+_AFK_LIMIT_CHECK_THRESHOLD: float = 0.75
+_AFK_LIMIT_CHECK_SCALE_RANGE: Tuple[float, float, float] = (0.8, 1.3, 0.1)
+
 
 class GlobalNavigator:
     """全局最短路径导航（判定统一走全局界面注册表）。"""
@@ -287,6 +300,26 @@ class GlobalNavigator:
             if screen == 'unknown':
                 # v1.9.2（用户定案全局规则）：转场等待期发现「点击
                 # 空白处」弹层一律先点掉（结算/奖励类，点掉后重新识别）
+                # ── 「挂机极限进度」确认弹窗 → 点 √ 继续（真机 2026-11-04）──
+                _texts = [
+                    str(it[2]) for it in items
+                    if len(it) >= 4 and it[3] >= 0.3
+                ]
+                if any(m in t for t in _texts for m in _AFK_LIMIT_MARKS):
+                    self._log('[信息] 未识别画面是「挂机极限进度」弹窗 → 点 √ 继续')
+                    _hit = self.bot.template_match(
+                        _AFK_LIMIT_CHECK_TPL,
+                        threshold=_AFK_LIMIT_CHECK_THRESHOLD,
+                        scale_range=_AFK_LIMIT_CHECK_SCALE_RANGE,
+                        silent=True)
+                    if _hit:
+                        self.bot._click_abs(_hit[0], _hit[1])
+                        self._log('[成功] 已点 √（挂机极限进度），重新识别画面')
+                        self._sleep()
+                        self._unknown_streak = 0
+                        continue
+                    self._log('[警告] √ 模板未命中（挂机极限弹窗），继续等待')
+
                 _bc = self.bot.find_text(
                     items, '点击空白处', min_conf=0.5)
                 if _bc:

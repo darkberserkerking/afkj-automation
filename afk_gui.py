@@ -2002,7 +2002,18 @@ class App(ctk.CTk):
     # ────────────────────────────────────────────────────────────────
     #  控制按钮
 
+    _START_GUARD_SEC: float = 2.0   # 停止后这段时间内的"启动"点击视为误触
+
     def _on_start(self):
+        # v2.2.33（真机 2026-11-04 12:21）：_on_stop 会立刻把按钮变回「▶ 运行」，
+        # 用户以为没停、再点一下 = **又启动了**（日志：12:21:36 [停止] →
+        # 12:21:37 启动 ✗）。停止后 _START_GUARD_SEC 内忽略启动点击。
+        _ts = getattr(self, '_stop_ts', 0.0)
+        if _ts and (time.time() - _ts) < self._START_GUARD_SEC:
+            self._append_log(
+                f'[提示] 刚停止 {time.time() - _ts:.1f}s，'
+                f'{self._START_GUARD_SEC:.0f}s 内忽略启动点击（防误触）')
+            return
         if not self._bot_ready:
             self._append_log('[信息] OCR 引擎初始化中，请稍候...')
             return
@@ -2121,6 +2132,11 @@ class App(ctk.CTk):
         self._on_stop()
 
     def _on_stop(self):
+        # v2.2.33：记录停止时刻（配合 _on_start 的防误触守卫）
+        try:
+            self._stop_ts = time.time()
+        except Exception:
+            pass
         self._running = False
         if self._bot:
             self._bot.stop()
