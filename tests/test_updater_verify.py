@@ -218,6 +218,44 @@ check('9c 完整更新说明写进日志面板（可滚动）',
 check('9d 没有 pending 时给出提示，而不是静默 return',
       '请先点一次「🔄 检查更新」' in _gui_src)
 
+# ── 10. SSL 上下文：系统证书库 + certifi 合并（v2.3.33，不触网） ──
+# 真机 2026-11-05 23:36：exe 检查更新报
+# CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate。
+# 根因是 create_default_context(cafile=certifi) 跳过了 Windows ROOT store，
+# 而本机到 api.github.com 的中间 CA 只在系统库里。
+import ssl as _ssl
+from unittest import mock as _mock
+
+_calls10 = []
+
+
+class _FakeCtx10:
+    def __init__(self):
+        self.loaded = []
+
+    def load_verify_locations(self, **kw):
+        self.loaded.append(kw)
+
+
+_fake10 = _FakeCtx10()
+with _mock.patch.object(_ssl, 'create_default_context',
+                        side_effect=lambda *a, **kw: (
+                            _calls10.append(kw), _fake10)[1]):
+    U._ssl_context()
+
+check('10a create_default_context 不传 cafile（传了会跳过系统 ROOT 库）',
+      bool(_calls10) and 'cafile' not in _calls10[0], str(_calls10))
+check('10b 追加加载 certifi CA（保留 v2.2.23 的 ASN1 修复）',
+      any('cafile' in kw for kw in _fake10.loaded), str(_fake10.loaded))
+
+# 真实 context 行为：合并后的 CA 数应多于「仅 certifi」
+import certifi as _certifi  # noqa: E402
+_merged = U._ssl_context().cert_store_stats().get('x509', 0)
+_only_ca = _ssl.create_default_context(
+    cafile=_certifi.where()).cert_store_stats().get('x509', 0)
+check('10c 合并后 CA 数量 > 仅 certifi（证明系统库已加载）',
+      _merged > _only_ca, f'merged={_merged} certifi_only={_only_ca}')
+
 print()
 print(f'══ 自动更新器：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

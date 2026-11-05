@@ -152,14 +152,29 @@ def _headers(token: str) -> Dict[str, str]:
 
 
 def _ssl_context():
-    """构造 HTTPS 上下文：**优先 certifi 的 CA 包**。
+    """构造 HTTPS 上下文：**Windows 系统证书库 + certifi 合并**（不是二选一）。
 
-    为什么必须显式指定（v2.2.23，真机 2026-10-27 实证）：
-    PyInstaller onefile 里 Python 自带的证书链往往拿不到 → 握手时报
-    `[ASN1: NOT_ENOUGH_DATA] not enough data (_ssl.c:...)` ✗
-    （源码模式正常 ✓、exe 报错 ✗ —— 就是这个差异）
+    v2.2.23：PyInstaller onefile 里 Python 自带证书链拿不到 → 曾报
+    `[ASN1: NOT_ENOUGH_DATA]`，故显式加载 certifi CA。
+
+    v2.3.33（真机 2026-11-05 23:36 截图报障）：
+    `create_default_context(cafile=...)` 传了 cafile 会**跳过 Windows ROOT
+    系统证书库**。本机到 api.github.com 的 TLS 链路经过一个中间 CA
+    （代理/企业根证书），该 CA 只存在于系统证书库、不在 certifi 的 Mozilla
+    bundle 里 → exe 检查更新报
+    `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate (_ssl.c:1016)`。
+
+    本机实测（2026-11-05，同一 URL / 同一 token）：
+      cafile=certifi            → FAIL（报错文本与截图一致）
+      create_default_context()  → OK（自动加载系统 ROOT）
+      系统证书 + certifi 追加    → OK
+
+    修法：先不传 cafile 建 context（加载系统默认证书），再
+    `load_verify_locations(cafile=certifi)` **追加**，两者叠加 —— 既保留
+    v2.2.23 的修复，又覆盖本机信任链；不降低证书校验强度。
     """
     import ssl
+    ctx = ssl.create_default_context()      # 关键：不传 cafile
     try:
         import certifi
         # 打包后 certifi 的数据文件在 _MEIPASS/certifi/cacert.pem
@@ -169,10 +184,12 @@ def _ssl_context():
             cand = os.path.join(base, 'certifi', 'cacert.pem')
             if os.path.isfile(cand):
                 path = cand
-        return ssl.create_default_context(cafile=path)
+        if os.path.isfile(path):
+            ctx.load_verify_locations(cafile=path)
     except Exception:
-        # 退回系统证书库（Windows 可用）；若仍失败会在调用处报错
-        return ssl.create_default_context()
+        # certifi 不可用时至少还有系统证书库，不额外降级
+        pass
+    return ctx
 
 
 _SSL_CTX = None
