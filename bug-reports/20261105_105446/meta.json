@@ -1,0 +1,18 @@
+{
+  "time": "2026-11-05 10:54:47",
+  "version": "v2.3.10",
+  "task": "selftest-v2310",
+  "exception": "",
+  "traceback": "",
+  "screenshot_ok": true,
+  "hwnd": 0,
+  "window_rect": [],
+  "os": "Windows 10 10.0.26200",
+  "python": "3.11.15",
+  "frozen": false,
+  "cwd": "C:\\Users\\x9502\\WorkBuddy\\20260320211537",
+  "extra": {
+    "note": "自测：截图+日志+Issue"
+  },
+  "log_lines": 800
+}
