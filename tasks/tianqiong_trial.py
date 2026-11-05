@@ -50,7 +50,9 @@ _LOCKED_WORD: str = '未解锁'          # 塔内更高层
 _CLEARED_WORD: str = '已通关'         # 当前层已通关
 _PREP_WORDS: Tuple[str, ...] = ('通关阵容', '一键采用')
 _RESULT_WORDS: Tuple[str, ...] = (
-    '战斗胜利', '战斗失败', '继续挑战', '再次挑战', '推荐提升',
+    # 「下一关」= 天穹胜利结算页的主按钮（真机 2026-11-05 19:44 截图）；
+    # 大标题「战斗胜利」是艺术字，OCR 常读不出，靠按钮反推更稳。
+    '下一关', '战斗胜利', '战斗失败', '继续挑战', '再次挑战', '推荐提升',
 )
 
 _TEXT_MIN_CONF: float = 0.7      # 文本判据阈值（实测都 ≥0.88）
@@ -412,13 +414,18 @@ class TianqiongTrialTask(BaseTask):
         self._sleep(1.5)
 
     def _close_result(self, items: List[Tuple]) -> None:
-        """结算页：优先点「继续挑战/再次挑战」，否则 ESC/返回。"""
-        for word in ('继续挑战', '再次挑战'):
+        """结算页：优先点「下一关」，其次「继续挑战/再次挑战」，否则返回。
+
+        真机 2026-11-05 19:44（用户截图）：天穹胜利结算页的主按钮是
+        **「下一关」**（绿色），旧逻辑只找「继续挑战/再次挑战」→ 找不到就
+        按返回，直接退出了塔内，一局打完就结束。必须点「下一关」继续下一层。
+        """
+        for word in ('下一关', '继续挑战', '再次挑战'):
             pos = self._find_exact(items, word, _TEXT_MIN_CONF)
             if pos:
                 self.log(f"[点击] 结算页「{word}」 | 图像={pos}")
                 self.bot.click_at(pos[0], pos[1], f'天穹试炼_{word}')
-                self._sleep(2.0)
+                self._sleep(2.5)
                 return
         self.log("[信息] 结算页无可点按钮 → 关闭（返回 / ESC）")
         self._back()
