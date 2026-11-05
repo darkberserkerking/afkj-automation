@@ -1,0 +1,21 @@
+{
+  "time": "2026-11-05 11:04:57",
+  "version": "v2.3.11",
+  "task": "unit-exc",
+  "exception": "ValueError: 模拟任务异常",
+  "traceback": "Traceback (most recent call last):\n  File \"C:\\Users\\x9502\\WorkBuddy\\20260320211537\\tests\\test_bug_report.py\", line 70, in <module>\n    raise ValueError('模拟任务异常')\nValueError: 模拟任务异常\n",
+  "screenshot_ok": true,
+  "hwnd": 68280,
+  "window_rect": [
+    56,
+    126,
+    1336,
+    1150
+  ],
+  "os": "Windows 10 10.0.26200",
+  "python": "3.11.15",
+  "frozen": false,
+  "cwd": "C:\\Users\\x9502\\WorkBuddy\\20260320211537",
+  "extra": {},
+  "log_lines": 800
+}
