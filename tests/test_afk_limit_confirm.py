@@ -262,6 +262,32 @@ _n = open(os.path.join(ROOT, 'tasks', 'global_nav.py'), encoding='utf-8').read()
 check('6h 全局导航「未识别画面」也认礼包弹窗',
       '点击屏幕退出' in _n)
 
+print('\n── 7. 日志调用签名（真机 11-05 10:22：App._append_log() 3 参直接崩任务 ✗）──')
+_loop_src = open(os.path.join(ROOT, 'afk_bot', 'auto_farm', 'loop.py'),
+                 encoding='utf-8').read()
+check('7a 核心层不再出现 self.log(级别, ...) 两参写法',
+      not any(f"self.log('{lv}'," in _loop_src
+              for lv in ('info', 'warn', 'error', 'debug')),
+      '两参会打到 GUI 的 _append_log → takes 2 positional but 3 given ✗')
+check('7b 核心层 _handle_afk_limit_confirm 用 self._log（带级别）',
+      "_log('info', '检测到「挂机极限进度」确认弹窗" in _loop_src)
+check('7c 等待备战期间也会处理挂机极限弹窗（真机 10:21 超时 ✗）',
+      '已处理挂机极限弹窗，继续等备战界面' in _loop_src)
+
+# _append_log 容错：两参调用不应抛
+import queue as _q  # noqa: E402
+import afk_gui as _G  # noqa: E402
+_a = _G.App.__new__(_G.App)
+_a._log_queue = _q.Queue()
+# App.__new__ 造的对象缺 _log_file → 会触发 __getattr__ 递归 ✗
+_a._log_file = open(os.devnull, 'w', encoding='utf-8')
+try:
+    _a._append_log('info', '消息')      # 旧实现这里会 TypeError ✗
+    _ok7d = _a._log_queue.get_nowait() == 'info 消息'
+except Exception as _e:
+    _ok7d = False
+check('7d App._append_log 兼容两参调用（不再崩任务）', _ok7d)
+
 print()
 print(f'══ 挂机极限弹窗：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

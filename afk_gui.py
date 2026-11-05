@@ -1900,7 +1900,17 @@ class App(ctk.CTk):
     # ────────────────────────────────────────────────────────────────
     #  日志
 
-    def _append_log(self, msg):
+    def _append_log(self, msg, *extra):
+        """追加日志。
+
+        v2.3.8：兼容**两参调用**（level, msg）—— `_bot.log` 被接到这里，
+        而核心层 `_log(level, msg)` 最终会 `self.log(f'{prefix} {msg}')`；
+        只要有人误写 `self.log('info', ...)`（2 参）就会
+        `takes 2 positional arguments but 3 were given` 直接崩任务 ✗
+        → 这里多收参数并拼进正文，把"静默崩溃"降级为"日志多一段" ✓
+        """
+        if extra:
+            msg = ' '.join(str(x) for x in (msg,) + extra)
         self._log_queue.put(msg)
         # v2.1.27（P0-2）：留一份现场快照——崩溃报告自带最后 20 行日志
         try:

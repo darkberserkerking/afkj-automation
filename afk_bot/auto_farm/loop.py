@@ -510,7 +510,7 @@ class AFKBotCore:
                 if isinstance(c, (int, float)) and c >= 0.3
             ]
             if is_afk_limit_dialog(texts):
-                self.log('info', '检测到「挂机极限进度」确认弹窗，点 √ 继续挑战')
+                self._log('info', '检测到「挂机极限进度」确认弹窗，点 √ 继续挑战')
                 ok = self.template_match(
                     _AFK_LIMIT_CHECK_TPL, _AFK_LIMIT_CHECK_THRESHOLD,
                     scale_range=_AFK_LIMIT_CHECK_SCALE_RANGE)
@@ -518,13 +518,13 @@ class AFKBotCore:
                     # v2.3.1：核心类**没有 self.bot**（那是 task 层的属性 ✗）
                     # 必须用自身的 _click_abs（真机点不了 / 单测被 mock 掩盖 ✗）
                     self._click_abs(ok[0], ok[1])
-                    self.log('info', '已点击 √（继续挑战）')
+                    self._log('info', '已点击 √（继续挑战）')
                     self._stop_event.wait(1.5)
                     return True
                 # 模板没命中 → **不盲点**（√/✕ 位置相近，误点会取消挑战白费体力）
-                self.log('warn',
-                         '√ 模板未命中，未点击（避免误触取消挑战）；'
-                         f'识别到: {texts[:8]}')
+                self._log('warn',
+                          '√ 模板未命中，未点击（避免误触取消挑战）；'
+                          f'识别到: {texts[:8]}')
                 return False
             self._stop_event.wait(1)
         return False
@@ -1207,6 +1207,12 @@ class AFKBotCore:
                     self._pause.wait()
                     if self._stop:
                         break
+                    # v2.3.8（真机 11-05 10:21）：点挑战后可能弹「挂机极限进度」确认框
+                    # → 等待期内先处理它（点 √），再继续等备战界面
+                    if self._handle_afk_limit_confirm():
+                        self._log('info', '已处理挂机极限弹窗，继续等备战界面')
+                        formation_start = time.time()   # 处理完重新计时
+                        continue
                     phase = self._phase_detector.detect_phase()
                     if phase == 'formation':
                         self._log('info', '成功进入备战界面')

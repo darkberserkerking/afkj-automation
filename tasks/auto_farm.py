@@ -137,15 +137,31 @@ class AutoFarmTask(BaseTask):
         if not hasattr(self.bot, "_ocr_screen"):
             return   # v1.9.49：无 OCR 能力的 bot（Mock）跳过
         items = self.bot._ocr_screen()
+        # v2.3.8（群友反馈「最新版找不到宝箱、旧版正常」）：
+        # 判据逻辑本身没改过 → 多半是**游戏侧时间文本变了/读不出** ✗
+        #   · 时间格式放宽：HH:MM:SS 之外也认 MM:SS（部分界面只显示分秒）
+        #   · 区域放宽：rx 0.35~0.65 / ry 0.65~0.95
+        #   · **读不到时打印候选**（含坐标/置信度），方便按日志定位 ✓
+        def _time_like(_t: str) -> bool:
+            _t = _t.strip().replace("O", "0").replace("o", "0")
+            return bool(re.fullmatch(r"\d{1,2}:\d{2}:\d{2}", _t)
+                        or re.fullmatch(r"\d{1,2}:\d{2}", _t))
+
         chest = next(
             ((it[1], it[0]) for it in items
              if len(it) >= 4 and it[3] >= 0.8
-             and re.fullmatch(r"\d{1,2}:\d{2}:\d{2}",
-                              it[2].strip().replace("O", "0"))
-             and 0.40 < it[1] / 1280.0 < 0.60
-             and 0.70 < it[0] / 1024.0 < 0.90), None)
+             and _time_like(it[2])
+             and 0.35 < it[1] / 1280.0 < 0.65
+             and 0.65 < it[0] / 1024.0 < 0.95), None)
         if not chest:
-            self.log("[信息] 未找到挂机收益宝箱（可能刚领取过），跳过")
+            _cands = [(it[2], int(it[1]), int(it[0]), round(float(it[3]), 2))
+                      for it in items
+                      if len(it) >= 4 and it[3] >= 0.5
+                      and 0.20 < it[1] / 1280.0 < 0.80
+                      and 0.50 < it[0] / 1024.0 < 1.00]
+            self.log("[信息] 未找到挂机收益宝箱 → 跳过领取"
+                     f"｜宝箱区候选[{len(_cands)}]="
+                     f"{_cands[:6] if _cands else '无'}")
             return
         # v2.1.18（真机 13:32 假成功复盘）：**统一坐标系**。
         # template_match 的 region 入参与返回值都是**屏幕绝对坐标**，
@@ -384,6 +400,18 @@ class AutoFarmTask(BaseTask):
                 self._sleep(_HG_SETTLE_WAIT)
                 if self.check_stop():
                     return
+                # v2.3.8（用户 11-05 10:21 实测）：**点沙漏后会弹确认框**，
+                # 不点它读数永远不变（日志：第 1 次点击未被结算 ✗）
+                # → 每轮先找「确认/确定」点掉，再读 xN
+                _cur = self.bot._ocr_screen(no_cache=True)
+                for _cw in ('确认', '确定'):
+                    _cp = self.bot.find_text(_cur, _cw, min_conf=0.7)
+                    if _cp:
+                        self.log(f"[点击] 沙漏领取「{_cw}」 | "
+                                 f"({_cp[0]},{_cp[1]})")
+                        self.bot.click_at(_cp[0], _cp[1], '挂机_沙漏确认')
+                        self._sleep(1.0)
+                        break
                 # 单次截图同时取两类候选（省一次 OCR）
                 _xn, _prices = _hg_candidates()
                 # ① **钻石定价出现** = 上一次点击已是最后一次免费领取
