@@ -1459,10 +1459,18 @@ class AFKBotCore:
             v1.5.0 起运行模式与战斗模式已固定（交替模式 + 逐次战斗），
             本方法**不接受模式参数**。
         """
+        # v2.3.27（真机 2026-11-05 20:33）：先复位 `_stop` 残留。
+        # `stop()` 会把 `_stop` 置 True，但唯一的复位点在 `_run_main_loop()`
+        # 开头 —— 而那句在**本入口检查之后**才执行。GUI `_on_start` 只
+        # clear 了 `_stop_event`（afk_gui.py:2295），没复位 `_stop` →
+        # 上一轮按过停止后，本轮一进这里就判「已收到停止信号」并返回
+        # stopped（实测：只领了挂机奖励就退出，从未开始推图）。
+        # `_stop_event` 才是"本轮是否被停止"的权威信号（GUI 每轮 clear）。
+        self._stop = False
         # v2.2.33（真机 2026-11-04 12:21）：入口先看停止信号。
         # 旧行为：任务层导航返回后直接调本函数 → 即使用户已点停止，仍会打印
         # 启动横幅、重新 find_and_focus、再走一遍启动导航 ✗（日志可见）
-        if self._stop or self._stop_event.is_set():
+        if self._stop_event.is_set():
             self._log('info', '已收到停止信号，不进入推图循环')
             return 'stopped'
 
