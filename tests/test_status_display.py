@@ -165,6 +165,23 @@ try:
 except Exception as _e:
     check('v2.3.15 负值兜底', False, str(_e))
 
+# 5b. 不含 stats 的状态快照（phase/round/running）不得清零已显示数值
+try:
+    _a = make_fake(2, 1)
+    _refresh(_a, {'stats': {'total_battles': 8, 'stage_progress': 5}})
+    check('v2.3.15 先刷新到 6/4', values(_a) == ('6', '4'), f'{values(_a)}')
+    _refresh(_a, {'running': False})
+    check('v2.3.15 running=False 无 stats 时保持 6/4（不清零）',
+          values(_a) == ('6', '4'), f'{values(_a)}')
+    _refresh(_a, {'phase': 'battle', 'round': 6})
+    check('v2.3.15 phase/round 无 stats 时保持 6/4（不清零）',
+          values(_a) == ('6', '4'), f'{values(_a)}')
+    _refresh(_a, {'stats': None, 'running': False})
+    check('v2.3.15 stats=None 时保持 6/4（不清零）',
+          values(_a) == ('6', '4'), f'{values(_a)}')
+except Exception as _e:
+    check('v2.3.15 无 stats 快照保持当前值', False, str(_e))
+
 # ── 6. 不破坏原流程 ──
 try:
     _a = make_fake(0, 0)

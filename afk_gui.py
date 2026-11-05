@@ -1998,8 +1998,9 @@ class App(ctk.CTk):
             try:
                 from afk_bot import bug_report as BR
             except Exception as _e:
-                self._post_ui(lambda: self._append_log(
-                    f'[警告] Bug 上报模块不可用: {_e}'))
+                # PEP 3110：except-as 变量在块结束时被清除，延迟 lambda 需固化
+                _msg = f'[警告] Bug 上报模块不可用: {_e}'
+                self._post_ui(lambda m=_msg: self._append_log(m))
                 return
             _hwnd = 0
             try:
@@ -2015,8 +2016,8 @@ class App(ctk.CTk):
                 folder, url = BR.report(task=task or 'manual', exc=exc,
                                         log_lines=_lines, hwnd=_hwnd)
             except Exception as _e:
-                self._post_ui(lambda: self._append_log(
-                    f'[警告] Bug 上报异常: {_e}'))
+                _msg = f'[警告] Bug 上报异常: {_e}'
+                self._post_ui(lambda m=_msg: self._append_log(m))
                 return
             self._post_ui(lambda: self._append_log(
                 f'[信息] 🐞 现场已保存：{folder}'))
@@ -2220,7 +2221,9 @@ class App(ctk.CTk):
         """
         if not data:
             return
-        stats = data.get('stats') or {}
+        stats = data.get('stats')
+        if not isinstance(stats, dict):
+            return  # 不含 stats 的状态快照（phase/round/running）不清零已显示数值
         try:
             battles = max(0, int(stats.get('total_battles', 0) or 0)
                           - self._run_base_battles)
