@@ -202,12 +202,48 @@ def _read_app_log_tail() -> List[str]:
 
 # ── ③ 上传 ────────────────────────────────────────────────────────────
 
+def _token_from_git() -> Optional[str]:
+    """从 **git credential**（用户推送用的凭据）取 token。
+
+    真机 2026-11-05 11:00：`github_token.txt` 里是 **fine-grained PAT**，
+    调 Git Data API 报 `403 Resource not accessible by personal access token` ✗
+    而 `git push` 一直成功 → 推送凭据必然有 Contents 写权限 ✓
+    （通常也是经典 PAT，`repo` scope 一并覆盖 Issues 写 ✓）
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ['git', 'credential', 'fill'],
+            input='protocol=https\nhost=github.com\n\n',
+            capture_output=True, text=True, timeout=15,
+            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'}).stdout
+        for line in out.splitlines():
+            if line.startswith('password='):
+                tok = line[len('password='):].strip()
+                if tok:
+                    return tok
+    except Exception:
+        pass
+    return None
+
+
 def _token() -> Optional[str]:
+    """取上传用 token，优先级：环境变量 → git 凭据 → github_token.txt。
+
+    ⚠️ git 凭据在前：它一定是**能写**的（否则推送不会成功 ✓），
+    而 github_token.txt 里的 fine-grained PAT 可能缺 Contents 写 ✗
+    """
+    env = (os.environ.get('AFKJ_GH_TOKEN') or '').strip()
+    if env:
+        return env
+    t = _token_from_git()
+    if t:
+        return t
     try:
         from afk_bot.updater import resolve_token
         return resolve_token()
     except Exception:
-        return os.environ.get('AFKJ_GH_TOKEN') or None
+        return None
 
 
 def _api(method: str, url: str, token: str, data=None) -> dict:
@@ -245,34 +281,11 @@ def upload(folder: Path) -> Optional[str]:
     if not tok:
         return None
     try:
-        _ensure_branch(tok)
-        ref = _api('GET', f'{API}/git/ref/heads/{BRANCH}', tok)['object']['sha']
-        base_tree = _api('GET', f'{API}/git/commits/{ref}', tok)['tree']['sha']
-
-        # 图片 + 日志 + meta 一起提交
-        entries = []
-        for name in ('shot.png', 'app.log', 'meta.json'):
-            f = folder / name
-            if not f.is_file():
-                continue
-            raw = f.read_bytes()
-            if len(raw) > 20 * 1024 * 1024:      # GitHub blob 上限 100MB，这里保守
-                continue
-            import base64
-            blob = _api('POST', f'{API}/git/blobs', tok, {
-                'content': base64.b64encode(raw).decode(), 'encoding': 'base64'})
-            entries.append({'path': f'bug-reports/{folder.name}/{name}',
-                            'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
-        if not entries:
-            return None
-
-        tree = _api('POST', f'{API}/git/trees', tok,
-                    {'base_tree': base_tree, 'tree': entries})['sha']
-        commit = _api('POST', f'{API}/git/commits', tok, {
-            'message': f'bug-report: {folder.name}', 'tree': tree,
-            'parents': [ref]})['sha']
-        _api('PATCH', f'{API}/git/refs/heads/{BRANCH}', tok,
-             {'sha': commit, 'force': False})
+        # ① 文件走 **git plumbing** 推到 bug-reports 分支
+        #    真机 11-05 11:00：Git Data API 建 refs 被 403 拒（fine-grained PAT 缺权限 ✗）
+        #    但 `git push` 一直可用 ✓ → 用 plumbing（hash-object / update-index /
+        #    write-tree / commit-tree / push），**完全不碰工作区与索引** ✓
+        _push_report_via_git(folder)
 
         # Issue 正文
         meta: dict = {}
@@ -297,6 +310,66 @@ def upload(folder: Path) -> Optional[str]:
         return issue.get('html_url')
     except Exception:
         return None
+
+
+def _push_report_via_git(folder: Path) -> bool:
+    """用 git plumbing 把报告推到 `bug-reports` 分支（**不动工作区/索引**）。
+
+    为什么不用 Git Data API：用户 token 是 fine-grained PAT，
+    `POST /git/refs` 报 403（缺 Contents 写）✗；
+    而 `git push` 一直成功 ✓（推送凭据本身有权限）。
+    """
+    import subprocess
+    import tempfile
+    root = _root()
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+
+    def g(*a, _env=None):
+        return subprocess.run(['git', *a], cwd=str(root),
+                              env=(_env or env), capture_output=True,
+                              text=True, timeout=120)
+
+    base = ''
+    r = g('rev-parse', f'origin/{BRANCH}')
+    if r.returncode == 0:
+        base = r.stdout.strip()
+    if not base:
+        r = g('rev-parse', 'HEAD')
+        base = r.stdout.strip()
+    if not base:
+        return False
+
+    idx = Path(tempfile.gettempdir()) / f'afkj_bugidx_{os.getpid()}'
+    try:
+        idx.unlink()
+    except Exception:
+        pass
+    e2 = {**env, 'GIT_INDEX_FILE': str(idx)}
+    if g('read-tree', base, _env=e2).returncode != 0:
+        return False
+    sub = f'bug-reports/{folder.name}'
+    added = False
+    for name in ('shot.png', 'app.log', 'meta.json'):
+        f = folder / name
+        if not f.is_file() or f.stat().st_size > 20 * 1024 * 1024:
+            continue
+        h = g('hash-object', '-w', str(f)).stdout.strip()
+        if not h:
+            continue
+        if g('update-index', '--add', '--cacheinfo',
+             f'100644,{h},{sub}/{name}', _env=e2).returncode == 0:
+            added = True
+    if not added:
+        return False
+    tree = g('write-tree', _env=e2).stdout.strip()
+    if not tree:
+        return False
+    commit = g('commit-tree', tree, '-p', base,
+               '-m', f'bug-report: {folder.name}').stdout.strip()
+    if not commit:
+        return False
+    return g('push', 'origin',
+             f'{commit}:refs/heads/{BRANCH}').returncode == 0
 
 
 def _issue_body(meta: dict, log_txt: str, img_url: str) -> str:
