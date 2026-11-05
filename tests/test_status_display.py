@@ -76,13 +76,16 @@ class _Spy:
         self.n += 1
 
 
-def make_fake(base_b=0, base_s=0):
-    """构造只暴露 _refresh_ui 所需属性的伪 self。"""
+def make_fake(base_b=0, base_s=0, rows=1):
+    """构造只暴露 _refresh_ui 所需属性的伪 self。
+
+    v2.3.17：显示控件从日志头部移到「自动推图」任务行，改为按行收集的
+    `_stat_labels` 列表；rows 参数用于验证多实例时每行都被刷新。
+    """
     return SimpleNamespace(
         _run_base_battles=base_b,
         _run_base_stages=base_s,
-        _lbl_stat_battles=FakeLabel(),
-        _lbl_stat_stages=FakeLabel(),
+        _stat_labels=[(FakeLabel(), FakeLabel()) for _ in range(rows)],
         after=_Spy(),
         _post_ui=_Spy(),
     )
@@ -91,8 +94,9 @@ def make_fake(base_b=0, base_s=0):
 _refresh = afk_gui.App._refresh_ui   # 未绑定方法：显式传伪 self
 
 
-def values(app):
-    return app._lbl_stat_battles.text, app._lbl_stat_stages.text
+def values(app, row=0):
+    _lb, _ls = app._stat_labels[row]
+    return _lb.text, _ls.text
 
 
 # ── 1. 启动置零（基线=当前累计 → 差值为 0）──
@@ -157,13 +161,32 @@ for _name, _data in _edge_cases:
 # 额外强断言：负值确实经 max(0,...) 兜底 configure 成 '0'（不是没刷新）
 try:
     _a = make_fake(0, 0)
-    _a._lbl_stat_battles.text = '99'
-    _a._lbl_stat_stages.text = '99'
+    _a._stat_labels[0][0].text = '99'
+    _a._stat_labels[0][1].text = '99'
     _refresh(_a, {'stats': {'total_battles': -5, 'stage_progress': -3}})
     check('v2.3.15 负值经 max(0,...) 兜底被 clamp 到 0',
           values(_a) == ('0', '0'), f'{values(_a)}')
 except Exception as _e:
     check('v2.3.15 负值兜底', False, str(_e))
+
+# 5c. 多「自动推图」实例时，每个任务行内的计数都要刷新（不能只刷第一个）
+try:
+    _a = make_fake(1, 1, rows=3)
+    _refresh(_a, {'stats': {'total_battles': 6, 'stage_progress': 4}})
+    _all = [values(_a, i) for i in range(3)]
+    check('v2.3.17 多个自动推图行全部刷新 → 5/3 ×3',
+          _all == [('5', '3')] * 3, f'{_all}')
+except Exception as _e:
+    check('v2.3.17 多行刷新', False, str(_e))
+
+# 5d. 无「自动推图」行（_stat_labels 为空）时不得抛异常
+try:
+    _a = make_fake(0, 0, rows=0)
+    _r = _refresh(_a, {'stats': {'total_battles': 6, 'stage_progress': 4}})
+    check('v2.3.17 无自动推图行时 _refresh_ui 安全返回',
+          _r is None and _a._stat_labels == [])
+except Exception as _e:
+    check('v2.3.17 空列表安全', False, str(_e))
 
 # 5b. 不含 stats 的状态快照（phase/round/running）不得清零已显示数值
 try:
@@ -212,14 +235,31 @@ try:
         return src[i:j if j != -1 else len(src)]
 
     _start = _method_body(_SRC, '_on_start')
-    check('v2.3.15 _on_start 同时记录基线并启动置零',
+    check('v2.3.15 _on_start 同时记录基线并启动置零（v2.3.17 走 _stat_labels）',
           'self._run_base_battles' in _start
-          and "self._lbl_stat_battles.configure(text='0')" in _start)
+          and '_stat_labels' in _start
+          and "configure(text='0')" in _start)
 
     _stop = _method_body(_SRC, '_on_stop')
     _reset = _method_body(_SRC, '_reset_buttons')
-    check('v2.3.15 _on_stop/_reset_buttons 内不出现 _lbl_stat_',
-          '_lbl_stat_' not in _stop and '_lbl_stat_' not in _reset)
+    check('v2.3.15 _on_stop/_reset_buttons 内不碰计数控件',
+          '_stat_labels' not in _stop and '_stat_labels' not in _reset)
+
+    # v2.3.17：计数必须挂在「自动推图」任务行，且日志头部不再有旧状态条
+    _add_row = _method_body(_SRC, '_add_task_row')
+    check('v2.3.17 仅 auto_farm 行创建计数控件',
+          "inst.class_id == 'auto_farm'" in _add_row
+          and '_stat_labels.append' in _add_row)
+    check('v2.3.17 计数控件放在任务标题行 title_row 内',
+          'title_row' in _add_row and 'text=\'累计挑战\'' in _add_row
+          and 'text=\'已通关\'' in _add_row)
+    _log_area = _method_body(_SRC, '_build_log_area')
+    check('v2.3.17 日志头部不再保留旧状态条',
+          '_stat_bar' not in _log_area
+          and '_lbl_stat_battles' not in _log_area)
+    _render = _method_body(_SRC, '_render_task_rows')
+    check('v2.3.17 重建任务行时重置 _stat_labels（防失效引用）',
+          '_stat_labels = []' in _render)
 
     _ru = _method_body(_SRC, '_refresh_ui')
     # 「裸 return」= 函数体顶层（8 空格）的 return；其后若还有同级语句即死代码。

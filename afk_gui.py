@@ -290,6 +290,8 @@ class App(ctk.CTk):
         # 任务清单状态（v1.5.1）
         self._task_vars = {}   # inst_id -> tk.BooleanVar
         self._task_rows = {}   # inst_id -> 行组件 dict
+        # v2.3.17：自动推图行内计数控件（每次重建行时重新收集）
+        self._stat_labels = []  # [(累计挑战数值 Label, 已通关数值 Label), ...]
         TaskRegistry.load_config()   # 启动时读 tasks_enabled.json
 
         # 运行实例状态（v1.5.3：任务行实时 HH:MM:SS || XX轮）
@@ -676,31 +678,8 @@ class App(ctk.CTk):
             text_color='#475569', anchor='w'
         ).pack(side='left', padx=(SPACE_XS, 0))
 
-        # ── 实时状态（v2.3.15）：自动推图累计挑战 / 已通关层数 ──
-        # 数据链路：StatsTracker.push → _update_status → __status__ 队列
-        #           → _flush（主线程）→ _refresh_ui。此处只建显示控件。
-        self._stat_bar = ctk.CTkFrame(log_hdr, fg_color='transparent')
-        self._stat_bar.pack(side='right', padx=(0, SPACE_XS))
-        ctk.CTkLabel(
-            self._stat_bar, text='累计挑战',
-            font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
-        ).pack(side='left')
-        self._lbl_stat_battles = ctk.CTkLabel(
-            self._stat_bar, text='0',
-            font=('Microsoft YaHei UI', 12, 'bold'), text_color=TEXT_BRIGHT,
-            anchor='w',
-        )
-        self._lbl_stat_battles.pack(side='left', padx=(SPACE_XS, SPACE_MD))
-        ctk.CTkLabel(
-            self._stat_bar, text='已通关',
-            font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
-        ).pack(side='left')
-        self._lbl_stat_stages = ctk.CTkLabel(
-            self._stat_bar, text='0',
-            font=('Microsoft YaHei UI', 12, 'bold'), text_color=TEXT_BRIGHT,
-            anchor='w',
-        )
-        self._lbl_stat_stages.pack(side='left', padx=(SPACE_XS, 0))
+        # v2.3.17：实时计数已移到「自动推图」任务行标题旁
+        # （见 _add_task_row 的 title_row），此处不再保留显示控件。
 
         # ── 容器：日志 ──
         self._log_container = ctk.CTkFrame(parent, fg_color='transparent')
@@ -764,6 +743,7 @@ class App(ctk.CTk):
         self._task_scroll._scrollbar.configure(width=4)
 
         self._task_rows = {}
+        self._stat_labels = []
         for inst in TaskRegistry.get_instances():
             self._add_task_row(inst)
 
@@ -812,10 +792,40 @@ class App(ctk.CTk):
         # 中间文字区：上下各留 5px，白底不贴边框线（transparent 底色会盖住边框直线段）
         mid = ctk.CTkFrame(row, fg_color='transparent')
         mid.pack(side='left', fill='x', expand=True, padx=(SPACE_SM, 0), pady=5)
-        lbl_name = ctk.CTkLabel(mid, text=meta.label,
+        # 标题行：任务名 +（仅自动推图）本次运行计数（v2.3.17 从日志头部移入）
+        title_row = ctk.CTkFrame(mid, fg_color='transparent', height=20)
+        title_row.pack(fill='x')
+        lbl_name = ctk.CTkLabel(title_row, text=meta.label,
                                 font=('Microsoft YaHei UI', 13, 'bold'),
                                 text_color=TEXT_BRIGHT, anchor='w', height=20)
-        lbl_name.pack(fill='x')
+        lbl_name.pack(side='left')
+        if inst.class_id == 'auto_farm':
+            # 说明用 TEXT_DIM 12 号、数值用 TEXT_BRIGHT 12 号 bold，
+            # 与任务名 13 bold / 摘要 12 的字号层级、颜色体系保持一致；
+            # 间距复用 SPACE_XS(说明↔数值) / SPACE_MD(两组之间)。
+            ctk.CTkLabel(
+                title_row, text='累计挑战',
+                font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
+                height=20,
+            ).pack(side='left', padx=(SPACE_MD, SPACE_XS))
+            _lbl_stat_b = ctk.CTkLabel(
+                title_row, text='0',
+                font=('Microsoft YaHei UI', 12, 'bold'),
+                text_color=TEXT_BRIGHT, anchor='w', height=20,
+            )
+            _lbl_stat_b.pack(side='left')
+            ctk.CTkLabel(
+                title_row, text='已通关',
+                font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
+                height=20,
+            ).pack(side='left', padx=(SPACE_MD, SPACE_XS))
+            _lbl_stat_s = ctk.CTkLabel(
+                title_row, text='0',
+                font=('Microsoft YaHei UI', 12, 'bold'),
+                text_color=TEXT_BRIGHT, anchor='w', height=20,
+            )
+            _lbl_stat_s.pack(side='left')
+            self._stat_labels.append((_lbl_stat_b, _lbl_stat_s))
         lbl_sum = ctk.CTkLabel(mid,
                                text=self._truncate(self._instance_summary(inst), 24),
                                font=('Microsoft YaHei UI', 12),
@@ -855,7 +865,10 @@ class App(ctk.CTk):
         }
 
         # 整行点击切换勾选（排除手柄/按钮区域；tkinter 事件不冒泡）
-        for w in (row, mid, lbl_name, lbl_sum):
+        # title_row 及其子控件（任务名/计数说明/数值）一并绑定，
+        # 否则点子标签不冒泡到 mid，点击无反应。
+        for w in [row, mid, lbl_sum, title_row] + list(
+                title_row.winfo_children()):
             w.bind('<Button-1>',
                    lambda e, iid=inst.inst_id, v=var: self._toggle_task(iid, v))
 
@@ -1356,6 +1369,8 @@ class App(ctk.CTk):
             child.destroy()
         self._task_rows = {}
         self._drawers = {}
+        # v2.3.17：行销毁后旧 Label 引用失效，必须重新收集
+        self._stat_labels = []
         for inst in self._ordered_instances():   # v2.1.0 边界任务固定位置
             self._add_task_row(inst)
         # 重建空态提示（子组件销毁会连带）
@@ -2218,6 +2233,8 @@ class App(ctk.CTk):
         v1.8.80 删除头部状态栏后本方法退化为空操作；v2.3.15 重新启用，
         只消费自动推图统计的「本次运行增量」= 当前累计 - 启动基线，
         避免后台 stats 进程级单例跨运行累加污染显示。
+        v2.3.17：显示位置从日志头部移到「自动推图」任务行标题旁，
+        故改为遍历该行内收集到的控件（可能不存在 → 空列表安全）。
         """
         if not data:
             return
@@ -2231,11 +2248,12 @@ class App(ctk.CTk):
                          - self._run_base_stages)
         except (TypeError, ValueError):
             return
-        try:
-            self._lbl_stat_battles.configure(text=str(battles))
-            self._lbl_stat_stages.configure(text=str(stages))
-        except Exception:
-            pass  # 窗口销毁中
+        for _lb, _ls in list(getattr(self, '_stat_labels', ())):
+            try:
+                _lb.configure(text=str(battles))
+                _ls.configure(text=str(stages))
+            except Exception:
+                pass  # 窗口销毁中 / 该行已被重建
 
     # ────────────────────────────────────────────────────────────────
     #  控制按钮
@@ -2270,8 +2288,12 @@ class App(ctk.CTk):
         else:
             self._run_base_battles = 0
             self._run_base_stages = 0
-        self._lbl_stat_battles.configure(text='0')
-        self._lbl_stat_stages.configure(text='0')
+        for _lb, _ls in list(getattr(self, '_stat_labels', ())):
+            try:
+                _lb.configure(text='0')
+                _ls.configure(text='0')
+            except Exception:
+                pass  # 行已重建 / 窗口销毁中
 
         # 更新 bot 配置（bot 已在后台初始化完毕）
         self._bot.log = self._append_log

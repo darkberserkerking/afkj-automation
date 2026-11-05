@@ -65,8 +65,9 @@ for _attr in ('_flush_id', '_timer_id'):
 
 
 def vals():
-    return (app._lbl_stat_battles.cget('text'),
-            app._lbl_stat_stages.cget('text'))
+    """v2.3.17：计数控件在「自动推图」任务行内，按行收集于 _stat_labels。"""
+    _lb, _ls = app._stat_labels[0]
+    return (_lb.cget('text'), _ls.cget('text'))
 
 
 def flush_once():
@@ -100,9 +101,17 @@ def status_items():
 # test_status_display.py 的断言单独保障（不在测试里 exec 产品源码）。
 app._run_base_battles = 100
 app._run_base_stages = 40
-app._lbl_stat_battles.configure(text='0')
-app._lbl_stat_stages.configure(text='0')
+app._stat_labels[0][0].configure(text='0')
+app._stat_labels[0][1].configure(text='0')
 check('v2.3.15 启动置零 → 0/0', vals() == ('0', '0'), f'{vals()}')
+# v2.3.17：祖先链 = 数值Label → title_row → mid → row，row 必须是自动推图那一行
+_anc_row = app._stat_labels[0][0].master.master.master
+_af_ids = [iid for iid in app._task_rows if iid.startswith('auto_farm')]
+check('v2.3.17 计数控件挂在「自动推图」任务行内',
+      bool(_af_ids) and app._task_rows[_af_ids[0]]['frame'] is _anc_row,
+      f'af_rows={_af_ids}')
+check('v2.3.17 日志头部旧状态条已移除',
+      not hasattr(app, '_stat_bar'))
 
 # ── 2. 执行中：后台推送必须经队列，flush 前不得直改控件 ──
 app._update_status(stats={'total_battles': 101, 'stage_progress': 41})
@@ -147,8 +156,8 @@ check('v2.3.15 无 stats 快照保持 3/3（不清零）',
 # ── 5. 第二次运行：重设基线后只显示本轮增量，不带出上次累计 ──
 app._run_base_battles = 103
 app._run_base_stages = 43
-app._lbl_stat_battles.configure(text='0')
-app._lbl_stat_stages.configure(text='0')
+app._stat_labels[0][0].configure(text='0')
+app._stat_labels[0][1].configure(text='0')
 app._update_status(stats={'total_battles': 104, 'stage_progress': 43})
 flush_once()
 check('v2.3.15 第二次运行只显示本轮增量 → 1/0',

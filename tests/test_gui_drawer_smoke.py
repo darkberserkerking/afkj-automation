@@ -91,15 +91,20 @@ def shown(w):
 
 
 def names(inst_id):
-    """行内所有 Label 文本"""
+    """行内所有 Label 文本（完整递归：v2.3.17 起标题行多了一层 title_row）"""
     row = app._task_rows[inst_id]['frame']
     out = []
-    for w in row.winfo_children():
-        if isinstance(w, ctk.CTkLabel):
-            out.append(w.cget('text'))
-        for sub in w.winfo_children():
-            if isinstance(sub, ctk.CTkLabel):
-                out.append(sub.cget('text'))
+
+    def _walk(w):
+        for c in w.winfo_children():
+            if isinstance(c, ctk.CTkLabel):
+                try:
+                    out.append(c.cget('text'))
+                except Exception:
+                    pass
+            _walk(c)
+
+    _walk(row)
     return out
 
 
@@ -390,18 +395,16 @@ try:
 except Exception as _e2:
     check('v2.3.2 抽屉更新区布局断言', False, str(_e2))
 
-# ── v2.3.15：实时状态显示（累计挑战 / 已通关层数）──
+# ── v2.3.15 / v2.3.17：实时状态显示（已从日志头部移到「自动推图」任务行）──
 try:
-    _lb = app._lbl_stat_battles
-    _ls = app._lbl_stat_stages
-    _bar = app._stat_bar
-    check('v2.3.15 累计挑战 Label 存在且初始为 0',
+    _pairs = app._stat_labels
+    check('v2.3.17 自动推图行内收集到计数控件', len(_pairs) >= 1,
+          f'pairs={len(_pairs)}')
+    _lb, _ls = _pairs[0]
+    check('v2.3.15 累计挑战 Label 初始为 0',
           _lb.cget('text') == '0', repr(_lb.cget('text')))
-    check('v2.3.15 已通关 Label 存在且初始为 0',
+    check('v2.3.15 已通关 Label 初始为 0',
           _ls.cget('text') == '0', repr(_ls.cget('text')))
-    check('v2.3.15 状态条布局在右侧（side=right）',
-          _bar.pack_info().get('side') == 'right',
-          str(_bar.pack_info().get('side')))
     _f_exp = ('Microsoft YaHei UI', 12, 'bold')
     check('v2.3.15 累计挑战数值字体 = Microsoft YaHei UI 12 bold',
           _lb.cget('font') == _f_exp, repr(_lb.cget('font')))
@@ -413,8 +416,23 @@ try:
     check('v2.3.15 已通关数值颜色 = TEXT_BRIGHT',
           _ls.cget('text_color') == afk_gui.TEXT_BRIGHT,
           repr(_ls.cget('text_color')))
-    check('v2.3.15 log_hdr 内包含 _stat_bar',
-          any(str(_c) == str(_bar) for _c in _bar.master.winfo_children()))
+
+    # v2.3.17 位置断言：祖先链 title_row → mid → row 必须是自动推图那一行
+    _title_row = _lb.master
+    _anc_row = _title_row.master.master
+    _af_ids = [iid for iid in app._task_rows if iid.startswith('auto_farm')]
+    check('v2.3.17 计数控件在自动推图任务行内',
+          bool(_af_ids) and app._task_rows[_af_ids[0]]['frame'] is _anc_row,
+          f'af_rows={_af_ids}')
+    check('v2.3.17 计数与任务标题同一行（同一父容器）',
+          app._task_rows[_af_ids[0]]['lbl_name'].master is _title_row)
+    check('v2.3.17 计数排在标题右侧（side=left 顺序：标题→说明→数值）',
+          _lb.pack_info().get('side') == 'left'
+          and _title_row.pack_slaves()[0]
+          is app._task_rows[_af_ids[0]]['lbl_name'])
+    check('v2.3.17 日志头部旧状态条已移除（不重复显示）',
+          not hasattr(app, '_stat_bar'))
+
     # _refresh_ui 可调用（非空操作）：主线程直接喂状态
     app._refresh_ui({'stats': {'total_battles': 5, 'stage_progress': 3},
                      'running': True})
@@ -426,6 +444,27 @@ try:
     check('v2.3.15 _refresh_ui 复位回到 0',
           _lb.cget('text') == '0' and _ls.cget('text') == '0',
           f"{_lb.cget('text')}/{_ls.cget('text')}")
+
+    # v2.3.17：其它任务行不得出现计数（只挂自动推图）——递归取全部子孙文本
+    def _all_texts(w):
+        out = []
+        try:
+            out.append(str(w.cget('text')))
+        except Exception:
+            pass
+        for _c in w.winfo_children():
+            out.extend(_all_texts(_c))
+        return out
+
+    _other = [iid for iid in app._task_rows
+              if not iid.startswith('auto_farm')]
+    _bad = []
+    for _iid in _other:
+        _txts = _all_texts(app._task_rows[_iid]['frame'])
+        if any('累计挑战' in _t or '已通关' in _t for _t in _txts):
+            _bad.append(_iid)
+    check('v2.3.17 其它任务行不显示计数（只挂自动推图）',
+          not _bad, f'误挂={_bad}')
 except Exception as _e3:
     check('v2.3.15 实时状态显示断言', False, str(_e3))
 
