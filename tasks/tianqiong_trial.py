@@ -118,6 +118,16 @@ class TianqiongTrialTask(BaseTask):
         # 已确认「无挑战层」的「出发！」按钮坐标 → 避免同一座塔反复进出
         self._exhausted_go: set = set()
         self._cur_go: Optional[Tuple[int, int]] = None
+        # ── v2.3.25 失败换阵容（对齐自动推图 formation_idx 语义）──
+        # 同一层失败一次就换下一套推荐阵容重试；`>` 消失或达上限 → 换塔。
+        self._fail_idx: int = 0            # 当前层已失败次数 = 已切换阵容次数
+        self._formation_exhausted: bool = False   # `>` 消失 = 推荐阵容已用完
+        try:
+            _cfg = getattr(ctx.get('bot'), 'config', {}) or {}
+            self._max_formations: int = int(
+                _cfg.get('max_formation_index', 10) or 10)
+        except Exception:                              # noqa: BLE001
+            self._max_formations = 10
 
     # ── 基类契约 ────────────────────────────────────────────
 
@@ -332,18 +342,79 @@ class TianqiongTrialTask(BaseTask):
 
     # ── 备战（同挂机 / 结社战线）─────────────────────────────
 
-    def _setup_lineup(self) -> None:
-        """备战界面：通关阵容 → 一键采用。"""
+    def _setup_lineup(self, switch_count: int = 0) -> None:
+        """备战界面：通关阵容 →（切换 N 套）→ 一键采用。
+
+        Args:
+            switch_count: 需要点 `>` 切换的阵容数（= 当前层已失败次数）。
+                自动推图侧等价语义见 `afk_bot/auto_farm/formation.py:140`
+                `switch_formation(times)`。
+        """
         pos = self._find_exact(self.bot._ocr_screen(), '通关阵容', _TEXT_MIN_CONF)
         if pos:
             self.log(f"[点击] 「通关阵容」 | 图像={pos}")
             self.bot.click_at(pos[0], pos[1], '备战_通关阵容')
             self._sleep(1.5)
+        if switch_count > 0:
+            self._switch_formation(switch_count)
         pos2 = self._find_exact(self.bot._ocr_screen(), '一键采用', _TEXT_MIN_CONF)
         if pos2:
             self.log(f"[点击] 「一键采用」 | 图像={pos2}")
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
             self._sleep(1.5)
+
+    def _switch_formation(self, times: int) -> bool:
+        """在「通关阵容」面板内点 `>` 切换 N 套推荐阵容。
+
+        照抄 `afk_bot/auto_farm/formation.py:140-219 switch_formation`：
+        只 OCR 一次拿 `>` 坐标，之后同坐标连点；点完验证 `>` 是否消失
+        （消失 = 推荐阵容已全部试过）。
+
+        Returns:
+            bool: True = 还有阵容可切；False = 已到最后一套
+        """
+        arrow: Optional[Tuple[int, int]] = None
+        for it in self.bot._ocr_screen():
+            if len(it) < 4 or it[3] < 0.3:
+                continue
+            if str(it[2]).strip() in ('>', '＞', '›'):
+                arrow = (int(it[1]), int(it[0]))
+                break
+        if not arrow:
+            # OCR 漏读 → 模板兜底（与自动推图同一张模板）
+            try:
+                hit = self.bot.template_match(
+                    'btn_formation_next.png', threshold=0.6, silent=True)
+                if hit:
+                    arrow = (hit[0], hit[1])
+            except Exception as exc:                   # noqa: BLE001
+                self.log(f"[调试] 切换阵容模板异常已忽略: {exc}")
+        if not arrow:
+            self.log("[警告] 未找到「>」按钮 → 已是最后一套阵容")
+            self._formation_exhausted = True
+            return False
+
+        self.log(f"[信息] 切换阵容 {times} 套（点 > {times} 次）| 图像={arrow}")
+        for i in range(times):
+            if self.check_stop():
+                return False
+            self.bot.click_at(arrow[0], arrow[1], '天穹试炼_切换阵容')
+            self._sleep(0.6)
+            if i < times - 1:
+                self._sleep(0.2)
+
+        # 验证 `>` 是否还在（不在 = 已到最后一套）
+        still = any(
+            len(it) >= 4 and it[3] >= 0.3
+            and str(it[2]).strip() in ('>', '＞', '›')
+            for it in self.bot._ocr_screen()
+        )
+        if not still:
+            self.log("[警告] 「>」按钮消失 → 推荐阵容已全部试过")
+            self._formation_exhausted = True
+            return False
+        self.log(f"[成功] 已切换到第 {times + 1} 套阵容")
+        return True
 
     def _press_f(self) -> None:
         """按 F 开战（**不在这里计数**：F 失效时会虚增，见 v2.3.21）。"""
@@ -413,30 +484,49 @@ class TianqiongTrialTask(BaseTask):
         self.bot.press_esc(label='天穹试炼_返回ESC')
         self._sleep(1.5)
 
-    def _close_result(self, items: List[Tuple]) -> None:
-        """结算页：优先点「下一关」，其次「继续挑战/再次挑战」，否则返回。
+    def _close_result(self, items: List[Tuple]) -> Optional[bool]:
+        """结算页处理，返回本场胜负。
 
-        真机 2026-11-05 19:44（用户截图）：天穹胜利结算页的主按钮是
-        **「下一关」**（绿色），旧逻辑只找「继续挑战/再次挑战」→ 找不到就
-        按返回，直接退出了塔内，一局打完就结束。必须点「下一关」继续下一层。
+        Returns:
+            True  = 胜利（点「下一关」，进入下一层）
+            False = 失败（点「再次挑战」回同一层备战，由调用方决定换阵容/换塔）
+            None  = 无按钮，走了返回兜底
+
+        按钮文案实测（用户截图）：
+          胜利结算 → 绿色「下一关」
+          失败结算 → 绿色「再次挑战」（上方有「战斗失败」艺术字 + 推荐提升）
         """
-        for word in ('下一关', '继续挑战', '再次挑战'):
-            pos = self._find_exact(items, word, _TEXT_MIN_CONF)
-            if pos:
-                self.log(f"[点击] 结算页「{word}」 | 图像={pos}")
-                self.bot.click_at(pos[0], pos[1], f'天穹试炼_{word}')
-                self._sleep(2.5)
-                return
+        pos = self._find_exact(items, '下一关', _TEXT_MIN_CONF)
+        if pos:
+            self.log(f"[点击] 结算页「下一关」（胜利） | 图像={pos}")
+            self.bot.click_at(pos[0], pos[1], '天穹试炼_下一关')
+            self._sleep(2.5)
+            return True
+        pos = self._find_exact(items, '再次挑战', _TEXT_MIN_CONF)
+        if pos:
+            self.log(f"[点击] 结算页「再次挑战」（失败） | 图像={pos}")
+            self.bot.click_at(pos[0], pos[1], '天穹试炼_再次挑战')
+            self._sleep(2.5)
+            return False
+        pos = self._find_exact(items, '继续挑战', _TEXT_MIN_CONF)
+        if pos:
+            self.log(f"[点击] 结算页「继续挑战」 | 图像={pos}")
+            self.bot.click_at(pos[0], pos[1], '天穹试炼_继续挑战')
+            self._sleep(2.5)
+            return True
         self.log("[信息] 结算页无可点按钮 → 关闭（返回 / ESC）")
         self._back()
+        return None
 
     def _battle_once(self) -> bool:
-        """一局：通关阵容 → 一键采用 → F → 等结算。
+        """一局：通关阵容 →（按失败次数切阵容）→ 一键采用 → F → 等结算。
 
         Returns:
             bool: True = 已确认结算（此时才计数）；False = 超时未结算
         """
-        self._setup_lineup()
+        if self._fail_idx > 0:
+            self.log(f"[信息] 复用第 {self._fail_idx + 1} 套阵容重试本层")
+        self._setup_lineup(self._fail_idx)
         self._press_f()
         ok = self._wait_result()
         if ok:
@@ -543,10 +633,29 @@ class TianqiongTrialTask(BaseTask):
                 self._back()
                 continue
 
-            # ③ 结算页残留 → 关掉
+            # ③ 结算页 → 胜利进下一层 / 失败换阵容（v2.3.25）
             if self._is_result_page(items):
                 stall = 0
-                self._close_result(items)
+                _won = self._close_result(items)
+                if _won is True:
+                    # 进入新的一层 → 阵容从第 1 套重新开始
+                    self._fail_idx = 0
+                    self._formation_exhausted = False
+                elif _won is False:
+                    self._fail_idx += 1
+                    self.log(f"[信息] 本层失败第 {self._fail_idx} 次"
+                             f"（阵容上限 {self._max_formations}）"
+                             f"→ 下一步换第 {self._fail_idx + 1} 套阵容")
+                    if (self._fail_idx >= self._max_formations
+                            or self._formation_exhausted):
+                        self.log(f"[信息] 本层已试 {self._fail_idx} 套阵容仍无法通过"
+                                 " → 切换另一座塔")
+                        if self._cur_go:
+                            self._exhausted_go.add(self._cur_go)
+                        self._fail_idx = 0
+                        self._formation_exhausted = False
+                        self._back()
+                        continue
                 continue
 
             # ④ 塔列表 → 点「出发！」；没有则今日结束

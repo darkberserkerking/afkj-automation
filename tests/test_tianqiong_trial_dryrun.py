@@ -416,6 +416,56 @@ _l11 = [c[2] for c in b11.clicks]
 check('11b 点了「下一关」', '天穹试炼_下一关' in _l11, str(_l11))
 check('11c 没有走返回（旧逻辑会退出塔内）', b11.backs == 0, f'backs={b11.backs}')
 
+# ═══════════════════════════════════════════════════════════
+#  12. 失败结算 → 再次挑战 + 换阵容 + 换塔（v2.3.25 用户截图）
+#      失败结算主按钮是「再次挑战」；按失败次数点 `>` 换下一套推荐阵容；
+#      `>` 消失或达上限 → 换另一座塔；所有塔都打完 → done。
+# ═══════════════════════════════════════════════════════════
+print('\n── 12. 失败结算与换阵容 ──')
+RESULT_LOSE = [
+    it(190, 432, '战斗失败', 0.86),      # 艺术字
+    it(490, 500, '推荐提升', 0.95),
+    it(812, 690, '再次挑战', 0.97),      # 绿色主按钮
+]
+t12, b12 = _make_task([RESULT_LOSE])
+check('12a 失败结算判据命中', t12._is_result_page(RESULT_LOSE))
+_won12 = t12._close_result(RESULT_LOSE)
+check('12b _close_result 返回 False（失败）', _won12 is False, f'{_won12}')
+check('12c 点了「再次挑战」',
+      '天穹试炼_再次挑战' in [c[2] for c in b12.clicks],
+      str([c[2] for c in b12.clicks]))
+
+# 12d：通关阵容面板里有点「>」→ 按次数切换
+PREP_ARROW = [
+    it(285, 973, '通关阵容', 0.95),
+    it(500, 900, '>', 0.90),
+    it(694, 852, '一键采用', 0.95),
+]
+t12b, b12b = _make_task([PREP_ARROW])
+t12b._setup_lineup(2)
+_n_sw = sum(1 for c in b12b.clicks if c[2] == '天穹试炼_切换阵容')
+check('12d 失败 2 次 → 点 2 次「>」换 2 套阵容', _n_sw == 2, f'n={_n_sw}')
+
+# 12e：没有「>」→ 判定推荐阵容已用完
+NO_ARROW = [it(285, 973, '通关阵容', 0.95),
+            it(694, 852, '一键采用', 0.95)]
+t12c, _ = _make_task([NO_ARROW])
+_r12c = t12c._switch_formation(1)
+check('12e 无「>」→ 返回 False 且标记阵容用完',
+      _r12c is False and t12c._formation_exhausted is True,
+      f'r={_r12c} exhausted={t12c._formation_exhausted}')
+
+# 12f：失败次数达阵容上限 → 换塔（返回塔列表）并结束
+t12d, b12d = _make_task([RESULT_LOSE] + [TOWER_LIST_CLOSED] * 3)
+t12d._cur_go = (850, 700)
+t12d._fail_idx = t12d._max_formations - 1
+r12d = t12d._play_loop()
+check('12f 阵容试完仍失败 → 换塔（走了返回）', b12d.backs >= 1,
+      f'backs={b12d.backs}')
+check('12g 当前塔被标记为已打完（不再重复进）',
+      (850, 700) in t12d._exhausted_go, str(t12d._exhausted_go))
+check('12h 所有塔都试过 → done', r12d == 'done', f'r={r12d!r}')
+
 print('\n' + '─' * 54)
 if _FAIL:
     print(f'  通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)}')
