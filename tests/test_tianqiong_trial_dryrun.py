@@ -119,6 +119,7 @@ class MockBot:
         self.keys: list = []
         self.scrolls: int = 0
         self.backs: int = 0
+        self.tpl_regions: list = []      # v2.3.32：记录 template_match 的 region
         self._stop_event = stop_event
         self._stop_on_click = stop_on_click
 
@@ -162,7 +163,12 @@ class MockBot:
 
     def template_match(self, tpl, threshold=0.8, silent=True,
                        scale_range=None, region=None):
+        self.tpl_regions.append(region)
         return None
+
+    def window_rect(self):
+        """窗口矩形 (l, t, w, h)，供模板 region 限界用。"""
+        return (0, 0, 1280, 1024)
 
     def _click_abs(self, cx, cy, label=''):
         """屏幕绝对坐标点击（模板匹配返回值用这个，不能用 click_at）。
@@ -608,6 +614,62 @@ t14c._switch_formation(1)          # 第 2 次仍找不到
 check('14f 连续 2 次找不到 → 才判用完',
       t14c._formation_exhausted is True,
       f'exhausted={t14c._formation_exhausted}')
+
+# ═══════════════════════════════════════════════════════════
+#  15. 模板 region 限界 + 计时埋点（v2.3.32）
+#      此前全屏 16 尺度匹配 ~8s/次；改为窗口比例圈 14% 面积，
+#      未命中再全屏兜底（不漏检），每次匹配打印耗时。
+# ═══════════════════════════════════════════════════════════
+print('\n── 15. 模板 region 与计时 ──')
+_EXPECT_REGION = (768, 256, 358, 512)   # 1280×1024 × (0.60,0.25,0.28,0.50)
+t15, _ = _make_task([PREP_ARROW])
+check('15a region 按窗口比例计算（约 14% 面积）',
+      t15._arrow_region() == _EXPECT_REGION, str(t15._arrow_region()))
+
+t15b, b15b = _make_task([PREP_ARROW])
+
+
+def _hit_rec(*a, **k):
+    b15b.tpl_regions.append(k.get('region'))
+    return (1915, 756)
+
+
+t15b.bot.template_match = _hit_rec
+_pos15b = t15b._find_arrow()
+check('15b 命中时 region 非 None（走局部搜索）',
+      _pos15b == (1915, 756)
+      and len(b15b.tpl_regions) == 1
+      and b15b.tpl_regions[0] == _EXPECT_REGION,
+      str(b15b.tpl_regions))
+check('15c 每次匹配都有 [耗时] 日志',
+      any('[耗时] 模板匹配' in m for m in t15b._logs),
+      str([m for m in t15b._logs if '[耗时]' in m][:1]))
+
+t15c, b15c = _make_task([PREP_ARROW])
+
+
+def _miss_rec(*a, **k):
+    b15c.tpl_regions.append(k.get('region'))
+    return None
+
+
+t15c.bot.template_match = _miss_rec
+check('15d 局部未命中 → 全屏兜底重试（不漏检）',
+      t15c._find_arrow() is None
+      and b15c.tpl_regions == [_EXPECT_REGION, None],
+      str(b15c.tpl_regions))
+
+t15d, b15d = _make_task([PREP_ARROW])
+t15d.bot.window_rect = lambda: (0, 0, 0, 0)
+def _miss_rec2(*a, **k):
+    b15d.tpl_regions.append(k.get('region'))
+    return None
+
+
+t15d.bot.template_match = _miss_rec2
+t15d._find_arrow()
+check('15e 窗口尺寸不可用 → 只全屏一次（不重复匹配）',
+      b15d.tpl_regions == [None], str(b15d.tpl_regions))
 
 print('\n' + '─' * 54)
 if _FAIL:

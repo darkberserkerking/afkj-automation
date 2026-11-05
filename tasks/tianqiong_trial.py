@@ -439,27 +439,71 @@ class TianqiongTrialTask(BaseTask):
     #     btn_back_arrow / btn_back_dark / btn_back_purple（已用于 _back）
     #   · 符号类模板未命中禁止改用 OCR 猜同一目标；仅此时才降级并说明原因。
     _ARROW_TPLS: Tuple[str, ...] = ('btn_formation_next.png',)
+    # (x, y, w, h) 相对窗口比例，照抄自动推图 formation.py:132-138
+    _ARROW_REGION_RATIO: Tuple[float, float, float, float] = (
+        0.60, 0.25, 0.28, 0.50)
+
+    def _arrow_region(self) -> Optional[Tuple[int, int, int, int]]:
+        """`>` 模板搜索区域（**屏幕绝对坐标**）；拿不到窗口尺寸 → None（全屏）。
+
+        比例来自自动推图：`>` 位于窗口 x≈0.69 / y≈0.54，限定
+        x 0.60~0.88 / y 0.25~0.75，约 **14% 全屏面积**，且避开底部
+        「一键采用」（y≈0.94 在区域外）。
+        `facade.window_rect()` 文档明确该接口就是「模板 region 限界用」，
+        取不到时返回 (0,0,0,0)，此处退化为全屏，保证功能不退化。
+        """
+        try:
+            fn = getattr(self.bot, 'window_rect', None)
+            if fn is None:
+                return None
+            l, t, w, h = fn()
+            if w <= 0 or h <= 0:
+                return None
+            rx, ry, rw, rh = self._ARROW_REGION_RATIO
+            return (int(l + w * rx), int(t + h * ry),
+                    int(w * rw), int(h * rh))
+        except Exception as exc:                       # noqa: BLE001
+            self.log(f"[调试] 窗口尺寸获取失败，模板改全屏搜索: {exc}")
+            return None
 
     def _find_btn_template(self, names: Tuple[str, ...],
                            threshold: float = 0.6
                            ) -> Optional[Tuple[int, int]]:
-        """按顺序在模板库中匹配按钮。
+        """按顺序在模板库中匹配按钮：**局部 region 优先 + 全屏兜底 + 计时埋点**。
+
+        v2.3.32：此前不传 `region`，走全屏 16 尺度 `matchTemplate`，真机
+        22:30 日志反推单次约 7.5~8.5s（占备战耗时 67%）。改为先按窗口
+        比例圈 14% 面积搜索；未命中再全屏重试一次，**保证不漏检**。
+        每次匹配都打印耗时与 region，便于真机核对优化收益。
 
         Returns:
             Optional[Tuple[int, int]]: 匹配中心的**屏幕绝对坐标**
-            （`template_match` 的原始语义，消费方必须用 `_click_abs`）。
+            （消费方必须用 `_click_abs`）。
         """
+        region = self._arrow_region()
+        scopes: List[Tuple[Optional[Tuple[int, int, int, int]], str]] = (
+            [(region, '局部')] if region is not None else [])
+        scopes.append((None, '全屏'))
+
         for nm in names:
-            try:
-                hit = self.bot.template_match(nm, threshold=threshold,
-                                              silent=True)
-            except Exception as exc:                   # noqa: BLE001
-                self.log(f"[调试] 模板 {nm} 匹配异常已忽略: {exc}")
-                continue
-            if hit:
-                self.log(f"[信息] 模板命中「{nm}」"
-                         f" | 屏幕=({int(hit[0])},{int(hit[1])})")
-                return (int(hit[0]), int(hit[1]))
+            for reg, tag in scopes:
+                hit: Optional[Tuple[int, int]] = None
+                t0 = time.monotonic()
+                try:
+                    hit = self.bot.template_match(
+                        nm, threshold=threshold, silent=True, region=reg)
+                except Exception as exc:               # noqa: BLE001
+                    self.log(f"[调试] 模板 {nm} 匹配异常已忽略: {exc}")
+                finally:
+                    self.log(
+                        f"[耗时] 模板匹配「{nm}」"
+                        f" | {time.monotonic() - t0:.2f}s"
+                        f" | {tag} region={reg if reg is not None else '全屏'}"
+                        f" | 命中={hit is not None}")
+                if hit:
+                    self.log(f"[信息] 模板命中「{nm}」"
+                             f" | 屏幕=({int(hit[0])},{int(hit[1])}) | {tag}")
+                    return (int(hit[0]), int(hit[1]))
         return None
 
     def _find_arrow(self) -> Optional[Tuple[int, int]]:
