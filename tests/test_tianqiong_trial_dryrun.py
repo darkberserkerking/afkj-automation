@@ -249,12 +249,16 @@ frames = (
     + [PLAYBOOK]      # 滚动找卡片 → 命中
     + [TOWER_LIST]    # 等塔列表
     + [TOWER_LIST]    # 主循环 → 点「出发！」
+    + [FLOOR]         # v2.3.22 _wait_enter_tower：确认进入塔内
     + [FLOOR]         # 主循环 → 点「挑战！」
     + [PREP]          # 主循环 → 备战
     + [PREP]          # _setup_lineup：点通关阵容
     + [PREP_ADOPT]    # _setup_lineup：点一键采用
     + [FLOOR_DONE]    # _wait_result：已回塔内（已通关）
-    + [FLOOR_DONE]    # 主循环：无挑战 → _back
+    # v2.3.22：无「挑战」需连续 3 帧确认（防转场误判）→ 给足 3 帧
+    + [FLOOR_DONE]    # 无挑战确认 1/3
+    + [FLOOR_DONE]    # 无挑战确认 2/3
+    + [FLOOR_DONE]    # 无挑战确认 3/3 → _back
     + [TOWER_LIST_CLOSED]   # 主循环：无出发 → done
 )
 t4, bot4 = _make_task(frames)
@@ -320,6 +324,37 @@ check('8c 挑战点击次数被限制（≤8）', _nch <= 8, f'n={_nch}')
 check('8d 日志含「无变化」诊断',
       any('无变化' in m for m in t8._logs),
       str([m for m in t8._logs if '无变化' in m][:1]))
+
+# ═══════════════════════════════════════════════════════════
+#  9. 进塔转场不误判（真机 2026-11-05 19:35 复现）
+#     点「出发！」后塔内页有转场动画，首帧只读到「已通关」读不到「挑战！」
+#     → 旧逻辑当场判「本塔今日已无可挑战层」直接返回，实际有可挑战层。
+# ═══════════════════════════════════════════════════════════
+print('\n── 9. 进塔转场不误判 ──')
+TRANSIT_FLOOR = [              # 转场帧：塔名 + 已通关，但「挑战！」尚未渲染
+    it(50, 347, '赛季不朽之塔', 0.97),
+    it(864, 472, '已通关', 0.96),
+]
+frames9 = (
+    [PLAYBOOK, PLAYBOOK, TOWER_LIST, TOWER_LIST]
+    + [TRANSIT_FLOOR]          # _wait_enter_tower：读到「已通关」→ 确认已进入
+    + [TRANSIT_FLOOR]          # 主循环：楼层页无挑战 → 确认 1/3（等待）
+    + [TRANSIT_FLOOR]          # 确认 2/3（等待）
+    + [FLOOR]                  # 确认 3 帧之前读到「挑战！」→ 应当点击
+    + [PREP, PREP, PREP_ADOPT]
+    + [FLOOR_DONE] * 4
+    + [TOWER_LIST_CLOSED]
+)
+t9, bot9 = _make_task(frames9)
+t9._goto_playbook = lambda: True
+r9 = t9.run()
+_s9 = [c[2] for c in bot9.clicks]
+check('9a 转场后仍点到了「挑战！」（未被误判结束）',
+      '天穹试炼_挑战' in _s9, str(_s9))
+check('9b 结果 done（打完后正常结束）', r9 == 'done', f'r={r9!r}')
+check('9c 日志有「等待转场结束」的确认过程',
+      any('等待转场结束' in m for m in t9._logs),
+      str([m for m in t9._logs if '等待转场' in m][:1]))
 
 print('\n' + '─' * 54)
 if _FAIL:

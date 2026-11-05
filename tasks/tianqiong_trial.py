@@ -66,6 +66,10 @@ _MAX_ROUNDS: int = 400           # 单次任务硬上限（四塔满层正常约
 _NO_PROGRESS_BACK: int = 3       # 画面连续无变化 N 帧 → 返回上一层重试
 _NO_PROGRESS_FAIL: int = 6       # 画面连续无变化 N 帧 → 终止
 _F_TIMEOUT_FAIL: int = 2         # 连续 N 次按 F 后未结算 → 终止
+# v2.3.22（真机 19:35）：点「出发！」后有转场动画，首帧常读不到「挑战！」
+# → 旧逻辑 4 秒就判「本塔已无可挑战层」直接返回。改为多帧确认。
+_NO_CHALLENGE_CONFIRM: int = 3   # 连续 N 帧（间隔 2s）无「挑战」才算本塔结束
+_ENTER_TOWER_TIMEOUT: float = 15.0   # 点「出发」后等塔内页稳定的上限
 _SCROLL_MAX: int = 14
 _ENTER_TIMEOUT: float = 12.0     # 点卡片后等塔列表
 _RESULT_TIMEOUT: float = 90.0    # 战斗结算最长等待
@@ -360,6 +364,30 @@ class TianqiongTrialTask(BaseTask):
         self.log(f"[警告] 战斗超过 {int(_RESULT_TIMEOUT)}s 未结算 → 继续主循环")
         return False
 
+    def _wait_enter_tower(self,
+                          timeout: float = _ENTER_TOWER_TIMEOUT) -> bool:
+        """点「出发！」后轮询等塔内页稳定，返回 True 表示已进入。
+
+        真机 2026-11-05 19:35：点出发后有**转场动画**，首帧 OCR 读不到
+        「挑战！」→ 旧逻辑 4 秒就判「本塔今日已无可挑战层」直接返回塔列表，
+        实际塔内有可挑战层。这里以「挑战！」或「已通关/未解锁」出现为准。
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.check_stop():
+                return False
+            items = self.bot._ocr_screen()
+            if self.dismiss_blink_popup(items=items):
+                self._sleep(1.0)
+                continue
+            if self._find_challenge(items):
+                return True
+            texts = self._texts(items, _TEXT_MIN_CONF)
+            if any(_CLEARED_WORD in t or _LOCKED_WORD in t for t in texts):
+                return True
+            self._sleep(1.5)
+        return False
+
     def _back(self) -> None:
         """返回上一层（模板返回按钮优先，ESC 兜底）。"""
         try:
@@ -412,6 +440,7 @@ class TianqiongTrialTask(BaseTask):
         rounds: int = 0
         no_progress: int = 0
         f_timeout: int = 0
+        no_challenge: int = 0        # v2.3.22：塔内连续未见「挑战」的确认计数
         prev_fp: Tuple[str, ...] = ()
         while True:
             if self.check_stop():
@@ -468,17 +497,30 @@ class TianqiongTrialTask(BaseTask):
                 pos = self._find_challenge(items)
                 if pos:
                     stall = 0
+                    no_challenge = 0
                     self.log(f"[点击] 「挑战！」 | 图像={pos}")
                     self.bot.click_at(pos[0], pos[1], '天穹试炼_挑战')
                     self._sleep(2.5)
                     continue
-                # 无「挑战」→ 本塔已打完；同时用 stall 防「返回无效」死循环
+                # v2.3.22：无「挑战」必须先连续多帧确认 —— 刚进塔的转场动画
+                # 会遮住按钮，单帧读不到就返回会**误判「本塔已打完」**
+                # （真机 19:35：进塔 4 秒即返回，实际有可挑战层）。
+                no_challenge += 1
+                if no_challenge < _NO_CHALLENGE_CONFIRM:
+                    self.log(f"[信息] 塔内暂未读到「挑战！」"
+                             f"（{no_challenge}/{_NO_CHALLENGE_CONFIRM}）"
+                             f"，等待转场结束｜候选={self._cands(items)}")
+                    self._sleep(2.0)
+                    continue
+                no_challenge = 0
+                # 多次确认仍无「挑战」→ 本塔已打完；用 stall 防「返回无效」死循环
                 stall += 1
                 if stall >= _STALL_MAX:
                     self.log(f"[错误] 塔内无「挑战」且返回无效（连续 {stall} 帧）"
                              f"→ 终止｜候选={self._cands(items)}")
                     return 'failed'
-                self.log("[信息] 本塔今日已无可挑战层 → 返回塔列表")
+                self.log(f"[信息] 本塔今日已无可挑战层"
+                         f"（已连续 {_NO_CHALLENGE_CONFIRM} 次确认）→ 返回塔列表")
                 if self._cur_go:
                     self._exhausted_go.add(self._cur_go)
                 self._back()
@@ -500,7 +542,11 @@ class TianqiongTrialTask(BaseTask):
                 self.log(f"[点击] 「出发！」 | 图像={pos}")
                 self.bot.click_at(pos[0], pos[1], '天穹试炼_出发')
                 self._cur_go = pos
-                self._sleep(2.5)
+                no_challenge = 0
+                # v2.3.22：等塔内页稳定再交给主循环判断，避免转场期误判
+                if not self._wait_enter_tower():
+                    self.log(f"[警告] 点「出发！」后 {int(_ENTER_TOWER_TIMEOUT)}s "
+                             "未确认进入塔内 → 重新识别画面")
                 continue
 
             # ⑤ 未知画面
