@@ -60,6 +60,7 @@ _a = Analysis(
         'tasks.labyrinth',
         'tasks.goddess_trial',
         'tasks.home_task',
+        'tasks.tianqiong_trial',
     ],
     hookspath=[],
     hooksconfig={},

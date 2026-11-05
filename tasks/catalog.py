@@ -18,6 +18,7 @@ from tasks.daily_quest import DailyQuestTask
 from tasks.friend_gift import FriendGiftTask
 from tasks.dream_realm import DreamRealmTask
 from tasks.guild_battle import GuildBattleTask
+from tasks.tianqiong_trial import TianqiongTrialTask
 from tasks.game_control import CloseGameTask, StartGameTask
 
 TASK_CLASSES = {
@@ -30,6 +31,7 @@ TASK_CLASSES = {
     FriendGiftTask.task_id: FriendGiftTask,
     DreamRealmTask.task_id: DreamRealmTask,
     GuildBattleTask.task_id: GuildBattleTask,
+    TianqiongTrialTask.task_id: TianqiongTrialTask,
     StartGameTask.task_id: StartGameTask,
     CloseGameTask.task_id: CloseGameTask,
 }
