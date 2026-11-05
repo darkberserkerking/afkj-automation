@@ -617,11 +617,12 @@ def _push_report_via_git(folder: Path) -> bool:
 def upload(folder: Path, retries: int = 3) -> Optional[str]:
     """把报告推到私有仓库并（尽力）建 Issue，返回 Issue URL。
 
-    v2.3.13 加固（用户要求"稳定上传、不遗漏"）：
+    v2.3.13 加固：
       ① **重试**：最多 retries 次，指数退避 ✓
       ② **结果校验**：push 成功**且**该目录文件已出现在远端才算数 ✓
-      ③ **不遗漏**：任何失败都写 `.pending`（含原因），
-         下次启动 `retry_pending()` 自动补传 ✓
+      ③ **失败留痕**：写 `.pending`（含原因）供人工排查；
+         **v2.3.19 起不再自动补传**（用户 2026-11-05 定案：只在当次真实
+         bug 中断时上传，避免历史报告被反复重建成重复 Issue）
       ④ Issue 建不了不丢报告（分支里已有 REPORT，见 `_write_report_md`）
 
     **绝不抛异常**（报 bug 链路不能崩主流程 ✓）
@@ -652,7 +653,15 @@ def upload(folder: Path, retries: int = 3) -> Optional[str]:
 
 
 def retry_pending(max_items: int = 10) -> int:
-    """补传历史失败的报告，返回成功条数（启动时调用 ✓）。"""
+    """补传历史失败的报告，返回成功条数。
+
+    ⚠️ **v2.3.19 起不再被 GUI 自动调用**（用户 2026-11-05 定案：
+    「不要补传，每次真实遇到 bug 中断后才触发上传」）。
+
+    保留本函数仅供**人工诊断**（如 `python -m afk_bot.bug_report` 或
+    REPL 手动调用）。启动补传曾导致私有仓库堆积 54 条重复 Issue：
+    测试产出的报告长期滞留在 `logs/bug_reports/`，每次启动被批量重建。
+    """
     ok = 0
     try:
         folders = sorted(reports_dir().iterdir(), reverse=True)

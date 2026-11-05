@@ -181,13 +181,30 @@ check('7b 有 activate_window（还原最小化 + 置前 + 校验）',
 check('7c 激活成功判定含"非最小化"（只看前台会误判 ✗）',
       'IsIconic' in _src and '_ready' in _src)
 check('7d 上传有重试（retries）', 'retries: int = 3' in _src)
-check('7e 失败写 .pending（下次启动补传）',
+check('7e 失败写 .pending（留痕供人工排查）',
       "'.pending'" in _src or '“.pending”' in _src or '".pending"' in _src)
-check('7f 有 retry_pending()（启动补传）', hasattr(BR, 'retry_pending'))
+check('7f retry_pending() 保留但仅手动诊断用',
+      hasattr(BR, 'retry_pending')
+      and '不再被 GUI 自动调用' in (BR.retry_pending.__doc__ or ''))
 check('7g Issue 建不了不丢报告（降级到分支 REPORT.md）',
       '_create_issue' in _src and 'REPORT.md' in _src)
 check('7h PrintWindow 兜底并校验非纯黑',
       'PrintWindow' in _src and 'getextrema' in _src)
+# v2.3.19（用户定案「不要补传，只在真实 bug 中断时上传」）：防回归
+try:
+    with open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), 'afk_gui.py'), encoding='utf-8') as _gf:
+        _gui_src = _gf.read()
+    check('7i GUI 启动不再自动补传（无 retry_pending 调用）',
+          'BR.retry_pending()' not in _gui_src
+          and '_retry_pending_reports' not in _gui_src.replace(
+              '`_retry_pending_reports` 已移除', ''))
+    check('7j 真实 bug 中断仍立即上传（任务失败 → _report_bug）',
+          "_report_bug(task=','.join(_failed))" in _gui_src)
+    check('7k 启动定时器只保留更新检查（无 after(5000…)）',
+          'after(5000, self._retry' not in _gui_src)
+except Exception as _e:
+    check('7i-k 补传移除断言', False, str(_e))
 
 print()
 print(f'══ Bug 上报：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

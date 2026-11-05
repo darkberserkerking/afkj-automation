@@ -365,8 +365,10 @@ class App(ctk.CTk):
         """启动后静默检查更新（3 秒后，失败不打扰用户）。"""
         try:
             self.after(3000, lambda: self._on_check_update(silent=True))
-            # v2.3.13：启动 5 秒后**补传**历史未成功的 Bug 报告（不遗漏 ✓）
-            self.after(5000, self._retry_pending_reports)
+            # v2.3.19（用户 2026-11-05 定案）：**取消启动自动补传**。
+            # 只在「真实遇到 bug 中断」时上传（任务失败 → _report_bug → 立即
+            # report(do_upload=True)）。历史补传会把测试/旧报告反复重建成
+            # Issue（私有仓库曾堆积 54 条重复），已移除。
         except Exception:
             pass
 
@@ -1986,22 +1988,8 @@ class App(ctk.CTk):
                     sys.stderr.write(f'[警告] 日志写入失败 | {e}\n')
                 except Exception:
                     pass
-    def _retry_pending_reports(self) -> None:
-        """启动时补传历史未成功的 Bug 报告（保证不遗漏 ✓）。"""
-        def _work():
-            try:
-                from afk_bot import bug_report as BR
-                n = BR.retry_pending()
-                if n:
-                    self._post_ui(lambda: self._append_log(
-                        f'[成功] 🐞 已补传 {n} 条历史 Bug 报告 ✓'))
-            except Exception:
-                pass
-        try:
-            threading.Thread(target=_work, daemon=True,
-                             name='bug-retry').start()
-        except Exception:
-            pass
+    # v2.3.19：`_retry_pending_reports` 已移除 —— 不再做启动补传
+    # （用户 2026-11-05 定案：只在该次真实 bug 中断时上传）。
 
     def _report_bug(self, task: str = '', exc=None) -> None:
         """采集 Bug 现场（游戏截图 + 日志尾部 + 环境）并尝试上传 GitHub。
