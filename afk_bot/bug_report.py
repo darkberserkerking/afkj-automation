@@ -36,7 +36,32 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
+# 代码仓库（只用于读取 version 等；**不放 Bug 报告**）
 REPO = 'darkberserkerking/afkj-automation'
+# ── Bug 报告仓库（v2.3.12）──────────────────────────────────────
+# 用户要求「仅本人可见」→ 公开仓库的 Issue/分支任何人可见 ✗
+# 唯一可靠做法：**私有仓库**（GitHub 私有仓库的 Issue 只有本人可见 ✓）
+# ⚠️ 需用户手动创建一次（token 无建仓权限 ✗）：
+#    GitHub → New repository → 名称 afkj-bug-reports → 勾选 **Private** → 不勾 README
+BUG_REPORT_REPO = 'darkberserkerking/afkj-bug-reports'
+# 隐藏子进程控制台窗口（pythonw 下每次 subprocess 都会闪一个黑窗 ✗）
+_NO_WINDOW = 0x08000000 if sys.platform.startswith('win') else 0
+
+
+def _no_console_kwargs() -> dict:
+    """让 subprocess **不弹控制台窗口**（修「上传时连续闪多个命令行窗口」✗）。"""
+    kw = {}
+    if sys.platform.startswith('win'):
+        kw['creationflags'] = _NO_WINDOW
+        try:
+            import subprocess as _sp
+            si = _sp.STARTUPINFO()
+            si.dwFlags |= _sp.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0          # SW_HIDE
+            kw['startupinfo'] = si
+        except Exception:
+            pass
+    return kw
 API = f'https://api.github.com/repos/{REPO}'
 BRANCH = 'bug-reports'
 LOG_TAIL_LINES = 800
@@ -262,7 +287,8 @@ def _token_from_git() -> Optional[str]:
             ['git', 'credential', 'fill'],
             input='protocol=https\nhost=github.com\n\n',
             capture_output=True, text=True, timeout=15,
-            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'}).stdout
+            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
+            **_no_console_kwargs()).stdout
         for line in out.splitlines():
             if line.startswith('password='):
                 tok = line[len('password='):].strip()
@@ -305,17 +331,17 @@ def _api(method: str, url: str, token: str, data=None) -> dict:
         return json.loads(raw) if raw else {}
 
 
-def _ensure_branch(token: str) -> None:
-    """确保 bug-reports 分支存在（从 main 建）。"""
+def _report_repo_ok(token: str) -> bool:
+    """校验报告仓库存在且**为私有**（可见性控制的核心 ✓）。
+
+    用户要求「仅本人可见」→ 公开仓库一律拒绝上传 ✗
+    （私有仓库的 Issue / 分支只有仓库所有者可见 ✓）
+    """
     try:
-        _api('GET', f'{API}/git/ref/heads/{BRANCH}', token)
-        return
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
-    main = _api('GET', f'{API}/git/ref/heads/main', token)['object']['sha']
-    _api('POST', f'{API}/git/refs', token,
-         {'ref': f'refs/heads/{BRANCH}', 'sha': main})
+        d = _api('GET', f'https://api.github.com/repos/{BUG_REPORT_REPO}', token)
+        return bool(d.get('private'))
+    except Exception:
+        return False
 
 
 def upload(folder: Path) -> Optional[str]:
@@ -325,6 +351,9 @@ def upload(folder: Path) -> Optional[str]:
     """
     tok = _token()
     if not tok:
+        return None
+    # **可见性校验**：报告仓库必须存在且为 private，否则拒绝上传（防泄露 ✗）
+    if not _report_repo_ok(tok):
         return None
     try:
         # ① 文件走 **git plumbing** 推到 bug-reports 分支
@@ -345,12 +374,13 @@ def upload(folder: Path) -> Optional[str]:
                 encoding='utf-8', errors='ignore')
         except Exception:
             pass
-        img = (f'https://github.com/{REPO}/raw/{BRANCH}/'
+        img = (f'https://github.com/{BUG_REPORT_REPO}/raw/{BRANCH}/'
                f'bug-reports/{folder.name}/shot.png')
         body = _issue_body(meta, log_txt, img)
         title = (f"[自动上报] {meta.get('task') or '未知任务'} · "
                  f"{meta.get('version') or '?'} · {folder.name}")
-        issue = _api('POST', f'{API}/issues', tok,
+        issue = _api('POST',
+                     f'https://api.github.com/repos/{BUG_REPORT_REPO}/issues', tok,
                      {'title': title[:200], 'body': body,
                       'labels': ['auto-bug']})
         return issue.get('html_url')
@@ -369,19 +399,27 @@ def _push_report_via_git(folder: Path) -> bool:
     import tempfile
     root = _root()
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    # 报告仓库的 https 地址（私有仓库；凭据沿用用户已存的 git credential ✓）
+    remote = f'https://github.com/{BUG_REPORT_REPO}.git'
+    nowin = _no_console_kwargs()          # **不弹控制台窗口** ✓
 
     def g(*a, _env=None):
         return subprocess.run(['git', *a], cwd=str(root),
                               env=(_env or env), capture_output=True,
-                              text=True, timeout=120)
+                              text=True, timeout=120, **nowin)
 
+    # 分支基点：优先取报告仓库已有分支，否则用本地 HEAD 的树
     base = ''
-    r = g('rev-parse', f'origin/{BRANCH}')
-    if r.returncode == 0:
-        base = r.stdout.strip()
+    r = g('ls-remote', remote, f'refs/heads/{BRANCH}')
+    if r.returncode == 0 and r.stdout.strip():
+        try:
+            base = g('fetch', '--quiet', remote,
+                     f'refs/heads/{BRANCH}').returncode == 0 and \
+                   g('rev-parse', 'FETCH_HEAD').stdout.strip() or ''
+        except Exception:
+            base = ''
     if not base:
-        r = g('rev-parse', 'HEAD')
-        base = r.stdout.strip()
+        base = g('rev-parse', 'HEAD').stdout.strip()
     if not base:
         return False
 
@@ -414,7 +452,7 @@ def _push_report_via_git(folder: Path) -> bool:
                '-m', f'bug-report: {folder.name}').stdout.strip()
     if not commit:
         return False
-    return g('push', 'origin',
+    return g('push', remote,
              f'{commit}:refs/heads/{BRANCH}').returncode == 0
 
 

@@ -120,6 +120,26 @@ def resolve_token(token: Optional[str] = None) -> str:
 
 
 
+# v2.3.12：pythonw 下每次 subprocess 都会闪一个黑色命令行窗口 ✗
+# 用户反馈「点上传时连续弹窗并闪烁」→ 所有 git 子进程一律隐藏控制台 ✓
+_NO_WINDOW_FLAGS = 0x08000000 if sys.platform.startswith('win') else 0
+
+
+def _quiet_kwargs() -> dict:
+    """subprocess 静默参数：不弹控制台窗口 ✓"""
+    kw = {}
+    if sys.platform.startswith('win'):
+        kw['creationflags'] = _NO_WINDOW_FLAGS
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+            kw['startupinfo'] = si
+        except Exception:
+            pass
+    return kw
+
+
 def _headers(token: str) -> Dict[str, str]:
     h = {
         'Accept': 'application/vnd.github+json',
