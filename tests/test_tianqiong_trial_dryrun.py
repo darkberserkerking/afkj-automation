@@ -466,6 +466,80 @@ check('12g 当前塔被标记为已打完（不再重复进）',
       (850, 700) in t12d._exhausted_go, str(t12d._exhausted_go))
 check('12h 所有塔都试过 → done', r12d == 'done', f'r={r12d!r}')
 
+# ═══════════════════════════════════════════════════════════
+#  13. 今日开放塔快照 + 去重（v2.3.26）
+#      进塔列表先记录"今天开了哪几座塔"，每座只进一次；
+#      塔内无「挑战！」= 该塔已通关 → 标记完成，返回后跳过。
+# ═══════════════════════════════════════════════════════════
+print('\n── 13. 今日开放塔快照与去重 ──')
+
+# 真实四塔帧，只有「不朽」开放（数据来自用户截图 OCR）
+TOWER_ONE_OPEN = [
+    it(324, 490, '赛季光辉之塔', 0.97), it(352, 449, '当前层数：91', 0.96),
+    it(402, 833, '周一/周五/周日', 0.97), it(419, 517, '不在开放时间内', 0.99),
+    it(472, 482, '赛季自然之塔', 0.97), it(502, 442, '当前层数：88', 0.98),
+    it(551, 824, '周三/周六/周日', 0.97), it(572, 508, '不在开放时间内', 0.98),
+    it(618, 510, '赛季不朽之塔', 0.93), it(646, 469, '当前层数：93', 0.97),
+    it(701, 853, '出发！', 0.96),
+    it(774, 496, '赛季意志之场', 0.89), it(803, 449, '当前层数：91', 0.95),
+    it(842, 834, '周二/周五/周日', 0.97), it(867, 518, '不在开放时间内', 0.99),
+]
+t13, _ = _make_task([TOWER_ONE_OPEN])
+_s13 = t13._scan_open_towers(TOWER_ONE_OPEN)
+check('13a 单塔开放 → 只记录 1 座', len(_s13) == 1, str(_s13))
+check('13b 「出发」归属正确的塔（不朽，非自然/意志）',
+      _s13 and '不朽' in _s13[0]['name'], str(_s13[0]['name'] if _s13 else ''))
+
+# 周六周日四塔全开（坐标按卡片布局推算：塔名 cy + 83）
+TOWER_ALL_OPEN = [
+    it(324, 490, '赛季光辉之塔', 0.97), it(407, 853, '出发！', 0.96),
+    it(472, 482, '赛季自然之塔', 0.97), it(555, 853, '出发！', 0.96),
+    it(618, 510, '赛季不朽之塔', 0.93), it(701, 853, '出发！', 0.96),
+    it(774, 496, '赛季意志之场', 0.89), it(857, 853, '出发！', 0.96),
+]
+_s13b = t13._scan_open_towers(TOWER_ALL_OPEN)
+check('13c 四塔全开 → 记录 4 座', len(_s13b) == 4, str(len(_s13b)))
+_names13 = [t['name'] for t in _s13b]
+check('13d 四塔名各归其位（含「意志之场」误读）',
+      all(k in n for k, n in zip(('光辉', '自然', '不朽', '意志'), _names13)),
+      str(_names13))
+
+# 端到端：两座塔都开放 → 各进一次 → 全完成即结束（不重复进同一座）
+TOWER_TWO_OPEN = [
+    it(618, 510, '赛季不朽之塔', 0.93), it(701, 853, '出发！', 0.96),
+    it(774, 496, '赛季意志之场', 0.89), it(857, 853, '出发！', 0.96),
+]
+frames13 = (
+    [PLAYBOOK, PLAYBOOK]
+    + [TOWER_TWO_OPEN]           # 快照 + 点第 1 座（不朽）
+    + [TRANSIT_FLOOR]            # _wait_enter_tower 确认进入
+    + [TRANSIT_FLOOR] * 3        # 无「挑战」→ 3 次确认 → 标记完成 + 返回
+    + [TOWER_TWO_OPEN]           # 点第 2 座（意志）
+    + [TRANSIT_FLOOR]
+    + [TRANSIT_FLOOR] * 3
+    + [TOWER_TWO_OPEN]           # 两座都 done → 结束
+)
+t13c, b13c = _make_task(frames13)
+t13c._goto_playbook = lambda: True
+r13c = t13c.run()
+_go_clicks = [c for c in b13c.clicks if c[2] == '天穹试炼_出发']
+_coords = [(c[0], c[1]) for c in _go_clicks]
+_cnt = {}
+for _c in _coords:
+    _cnt[_c] = _cnt.get(_c, 0) + 1
+check('13e 两座塔都被尝试到（出发点击 ≥2 次）', len(_go_clicks) >= 2, str(_coords))
+check('13f 只涉及两座塔（没有重复进同一座 N 次）',
+      len(_cnt) == 2, str(_cnt))
+# 进不去时最多重试 2 次即跳过（防死循环，v2.3.26 新增护栏）
+check('13g 同一座塔点击次数受限（≤3）', max(_cnt.values()) <= 3, str(_cnt))
+check('13h 结果 done', r13c == 'done', f'r={r13c!r}')
+check('13i 日志记录了今日开放塔数',
+      any('今日开放 2 座塔' in m for m in t13c._logs),
+      str([m for m in t13c._logs if '今日开放' in m][:1]))
+check('13j 日志记录「已全部尝试」',
+      any('已全部尝试' in m for m in t13c._logs),
+      str([m for m in t13c._logs if '已全部尝试' in m][:1]))
+
 print('\n' + '─' * 54)
 if _FAIL:
     print(f'  通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)}')

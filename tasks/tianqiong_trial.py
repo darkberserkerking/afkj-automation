@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from tasks.base import BACK_BUTTON_TPLS, BACK_THRESHOLD, BaseTask
 from task_registry import TaskMeta, TaskRegistry
@@ -61,6 +61,9 @@ _BTN_MIN_CONF: float = 0.85      # 按钮判据阈值（挑战 0.988）
 # 但真机实时识别可能偏低）→ 单独放宽到 0.6，避免漏检后误判「今日无开放塔」。
 _GO_MIN_CONF: float = 0.6
 _NO_GO_CONFIRM: int = 3          # 连续 N 帧找不到「出发」才判定今日无开放塔
+# v2.3.26：塔卡片高度（实测四塔 cy=324/472/618/774，间距 148~156）。
+# 用来把右侧「出发！」按钮归属到左侧最近的塔名。
+_TOWER_CARD_H: float = 150.0
 
 _SCROLL_CLICKS: int = -30        # 负值 = 向下滚
 _SCROLL_SETTLE: float = 0.3
@@ -128,6 +131,15 @@ class TianqiongTrialTask(BaseTask):
                 _cfg.get('max_formation_index', 10) or 10)
         except Exception:                              # noqa: BLE001
             self._max_formations = 10
+        # ── v2.3.26 今日开放塔快照 ──
+        # 塔列表上「已通关」与「可挑战」外观完全一致（都显示「出发！」），
+        # 只能进塔确认（塔内无「挑战！」）后才能标记完成。故进塔列表时
+        # 快照一次「今日开放哪几座塔」，之后按塔名/索引去重，不再重复进入。
+        self._today_towers: Optional[List[dict]] = None
+        self._cur_tower: Optional[dict] = None
+        # 塔名 → 进入失败次数。连续 2 次点「出发」都进不去就跳过该塔，
+        # 否则会死循环点同一个按钮（干跑 13e 实测连点 5 次）。
+        self._tower_enter_fails: Dict[str, int] = {}
 
     # ── 基类契约 ────────────────────────────────────────────
 
@@ -268,6 +280,48 @@ class TianqiongTrialTask(BaseTask):
                 continue
             return pos
         return None
+
+    def _scan_open_towers(self, items: List[Tuple]) -> List[dict]:
+        """快照塔列表上「今日开放」的塔（即显示「出发！」的那些）。
+
+        归属规则：`出发` 的 cy 落在 `[塔名 cy, 塔名 cy + _TOWER_CARD_H)`
+        区间内，即属于该塔。实测（截图 1282×1027）：
+          塔名 cy = 324/472/618/774，出发 cy = 701 → 属于 618 的「不朽之塔」；
+          701-472=229 > 150 → 不会误归给自然之塔。
+
+        塔名用「之塔/之场」模糊匹配：「意志之塔」会被 OCR 读成「意志之场」。
+
+        Returns:
+            [{'name': '赛季不朽之塔', 'go': (cx, cy), 'done': False}, ...]
+            按屏幕从上到下排序；扫描不到「出发」时返回空列表。
+        """
+        names: List[Tuple[float, str]] = []
+        gos: List[Tuple[float, float]] = []
+        for it in items:
+            if len(it) < 4:
+                continue
+            try:
+                cy, cx, cf = float(it[0]), float(it[1]), float(it[3])
+            except (TypeError, ValueError):
+                continue
+            t = str(it[2]).strip()
+            if cf >= _TEXT_MIN_CONF and (
+                    any(k in t for k in _TOWER_KWS)
+                    or ('赛季' in t and '塔' in t)):
+                names.append((cy, t))
+            elif cf >= _GO_MIN_CONF and _norm(t) == _GO_WORD:
+                gos.append((cy, cx))
+        names.sort()
+        out: List[dict] = []
+        for gy, gx in sorted(gos):
+            owner = ''
+            for ny, nt in names:
+                if ny - 10 <= gy < ny + _TOWER_CARD_H:
+                    owner = nt
+                    break
+            out.append({'name': owner or f'塔@{int(gy)}',
+                        'go': (int(gx), int(gy)), 'done': False})
+        return out
 
     def _find_challenge(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找塔内「挑战！」坐标 (cx, cy)。
@@ -626,8 +680,13 @@ class TianqiongTrialTask(BaseTask):
                     self.log(f"[错误] 塔内无「挑战」且返回无效（连续 {stall} 帧）"
                              f"→ 终止｜候选={self._cands(items)}")
                     return 'failed'
-                self.log(f"[信息] 本塔今日已无可挑战层"
-                         f"（已连续 {_NO_CHALLENGE_CONFIRM} 次确认）→ 返回塔列表")
+                _tname = (self._cur_tower or {}).get('name') or '本塔'
+                self.log(f"[信息] 「{_tname}」今日已无可挑战层"
+                         f"（已连续 {_NO_CHALLENGE_CONFIRM} 次确认）"
+                         "→ 标记为已通关，本次运行不再进入")
+                # v2.3.26：记入今日塔快照，返回塔列表后自动跳过
+                if self._cur_tower is not None:
+                    self._cur_tower['done'] = True
                 if self._cur_go:
                     self._exhausted_go.add(self._cur_go)
                 self._back()
@@ -650,6 +709,9 @@ class TianqiongTrialTask(BaseTask):
                             or self._formation_exhausted):
                         self.log(f"[信息] 本层已试 {self._fail_idx} 套阵容仍无法通过"
                                  " → 切换另一座塔")
+                        # 该塔本次运行不再进入（否则会回来重试同一层死循环）
+                        if self._cur_tower is not None:
+                            self._cur_tower['done'] = True
                         if self._cur_go:
                             self._exhausted_go.add(self._cur_go)
                         self._fail_idx = 0
@@ -658,10 +720,35 @@ class TianqiongTrialTask(BaseTask):
                         continue
                 continue
 
-            # ④ 塔列表 → 点「出发！」；没有则今日结束
+            # ④ 塔列表 → 点「出发！」；今日开放的塔都进过则结束
             if self._is_tower_list(items):
                 stall = 0
-                pos = self._find_go(items)
+                # v2.3.26：首次进塔列表时快照「今日开放塔」（按塔名去重）。
+                # 塔列表上已通关/可挑战外观一致，无法从卡片区分，所以每座
+                # 塔只进一次，进塔后无「挑战！」即标记完成、不再重复进入。
+                if self._today_towers is None:
+                    _snap = self._scan_open_towers(items)
+                    if _snap:
+                        self._today_towers = _snap
+                        self.log(
+                            f"[信息] 今日开放 {len(_snap)} 座塔："
+                            + '、'.join(t['name'] for t in _snap))
+                _next_tower: Optional[dict] = None
+                if self._today_towers:
+                    _next_tower = next(
+                        (t for t in self._today_towers if not t['done']), None)
+                    if _next_tower is None:
+                        self.log(
+                            "[成功] 今日开放的塔已全部尝试（"
+                            + '、'.join(t['name'] for t in self._today_towers)
+                            + "）→ 结束")
+                        return 'done'
+                    pos = _next_tower['go']          # type: ignore[assignment]
+                    _go_name = _next_tower['name']
+                else:
+                    # 快照为空（OCR 全漏）→ 回退旧的单点查找
+                    pos = self._find_go(items)       # type: ignore[assignment]
+                    _go_name = ''
                 if not pos:
                     # v2.3.23：单帧读不到「出发！」不得直接判结束 —— 真机
                     # 19:38 就因此 2 秒误退（实际当天有开放塔）。改为连续
@@ -677,14 +764,30 @@ class TianqiongTrialTask(BaseTask):
                              "→ 今日无开放中的天穹塔 → 结束")
                     return 'done'
                 no_go = 0
-                self.log(f"[点击] 「出发！」 | 图像={pos}")
+                self.log(f"[点击] 「出发！」"
+                         f"{f'（{_go_name}）' if _go_name else ''} | 图像={pos}")
                 self.bot.click_at(pos[0], pos[1], '天穹试炼_出发')
                 self._cur_go = pos
+                self._cur_tower = _next_tower
+                # 进入新塔 → 该塔当前层的阵容尝试从第 1 套重新开始
+                self._fail_idx = 0
+                self._formation_exhausted = False
                 no_challenge = 0
                 # v2.3.22：等塔内页稳定再交给主循环判断，避免转场期误判
                 if not self._wait_enter_tower():
-                    self.log(f"[警告] 点「出发！」后 {int(_ENTER_TOWER_TIMEOUT)}s "
-                             "未确认进入塔内 → 重新识别画面")
+                    _nm = (self._cur_tower or {}).get('name') or '本塔'
+                    _n = self._tower_enter_fails.get(_nm, 0) + 1
+                    self._tower_enter_fails[_nm] = _n
+                    self.log(f"[警告] 点「出发！」后 "
+                             f"{int(_ENTER_TOWER_TIMEOUT)}s 未确认进入「{_nm}」"
+                             f"（第 {_n} 次）")
+                    # 连续进不去 → 本次运行跳过该塔，避免死循环点同一个按钮
+                    if _n >= 2 and self._cur_tower is not None:
+                        self.log(f"[警告] 「{_nm}」连续 {_n} 次无法进入"
+                                 " → 本次跳过该塔")
+                        self._cur_tower['done'] = True
+                        if self._cur_go:
+                            self._exhausted_go.add(self._cur_go)
                 continue
 
             # ⑤ 未知画面
