@@ -48,3 +48,7 @@ dist_swap_test/
 
 # ── Bug 上报产物（本地保留，走 Issue 上传）──
 logs/
+
+# ── 临时提交信息文件 ──
+_msg.txt
+_commit_msg.txt
