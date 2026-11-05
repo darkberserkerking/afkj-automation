@@ -1,0 +1,23 @@
+{
+  "time": "2026-11-05 11:05:17",
+  "version": "v2.3.11",
+  "task": "unit-test",
+  "exception": "",
+  "traceback": "",
+  "screenshot_ok": true,
+  "hwnd": 68280,
+  "window_rect": [
+    56,
+    126,
+    1336,
+    1150
+  ],
+  "os": "Windows 10 10.0.26200",
+  "python": "3.11.15",
+  "frozen": false,
+  "cwd": "C:\\Users\\x9502\\WorkBuddy\\20260320211537",
+  "extra": {
+    "note": "dry-run"
+  },
+  "log_lines": 1000
+}
