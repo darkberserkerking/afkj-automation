@@ -57,30 +57,30 @@ class StartGameTask(BaseTask):
         return 'stopped'
 
     def _still_loading(self) -> bool:
-        """画面是否仍在启动加载界面（v2.3.16）。
+        """画面是否仍未进入可交互状态（v2.3.18 起改正向判据）。
 
-        尺寸就绪 ≠ 画面就绪：真机 2026-11-05 12:18，窗口客户区已达
-        1281×1033，但画面仍是「正在初始化游戏（5/14）」加载页；旧逻辑
-        连续 2 次尺寸有效（15s）就宣告 done，导航随即撞加载页 →
-        连续 unknown → ESC/返回按钮交替脱离。
+        v2.3.16 只判「命中加载文案」，读不到字就当"不是加载页"放行 —
+        真机 2026-11-05 16:39 证明不够：窗口出现 6 秒时画面还是黑屏/
+        logo（OCR 读不到任何文字），尺寸已有效 → 15s 就宣告 done，
+        导航随即连判「未识别画面」。
 
-        兜底原则：无 OCR 接口（测试桩）/ 截图尺寸 0 / OCR 异常，一律
-        返回 False 交还原有尺寸判定，绝不因新增检查卡死启动任务。
+        现在改为**正向判据**：只有 OCR 明确识别出某个已注册界面
+        （登录页 / 世界·家园 / 挂机关卡页 …）才算就绪；黑屏、logo、
+        初始化加载页、任何 unknown 一律继续等（仍受 _WAIT_MAX_S 上限）。
+
+        测试桩（无 _ocr_screen）返回 False，交还原尺寸判定，保证裸
+        object() 桩的干跑测试不崩。
         """
-        if getattr(self.bot, 'last_snap_empty', False):
-            return False
         if not hasattr(self.bot, '_ocr_screen'):
             return False
         try:
             items = self.bot._ocr_screen(no_cache=True) or []
         except Exception:
-            return False
-        from tasks.screen_registry import LOADING_MARKS
-        return any(
-            len(it) >= 4 and it[3] >= 0.8
-            and any(kw in it[2] for kw in LOADING_MARKS)
-            for it in items
-        )
+            # 截图失败（窗口刚出现/被遮挡）→ 保守当未就绪，由 120s 上限兜底
+            return True
+        from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY
+        return GLOBAL_SCREEN_REGISTRY.detect(items) in (
+            'unknown', 'nav.loading')
 
     def summary(self) -> str:
         return "检测并启动游戏客户端（已运行则跳过）"
@@ -163,6 +163,13 @@ class StartGameTask(BaseTask):
                     # 故启动收尾**显式还原并置前台**（bot.find_and_focus
                     # 内含 SW_RESTORE + 双 attach 抢前台 + 前台验证）。
                     self._activate_game_window()
+                    # v2.3.18：标记「刚启动完」——登录页之前的过渡画面
+                    # （黑屏/logo/初始化）导航会判 unknown，需按加载界面
+                    # 等待而非 ESC。识别到明确界面后由导航自动清除。
+                    try:
+                        self.bot._startup_pending = True
+                    except Exception:
+                        pass
                     return 'done'
             else:
                 _ready_streak = 0

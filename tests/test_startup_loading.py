@@ -136,8 +136,104 @@ try:
           '_unknown_streak = 0' in _nav[_loading_pos:_loading_pos + 600])
     check('v2.3.16 加载等待分支不再硬编码单一「正在加载游戏」判定',
           "and '正在加载游戏' in it[2]" not in _nav)
+    # v2.3.18：启动过渡期（_startup_pending）按加载界面等待
+    _grace_pos = _nav.find('_startup_grace')
+    check('v2.3.18 导航含启动过渡期判据 _startup_grace',
+          0 < _grace_pos < _loading_pos, f'grace={_grace_pos} loading={_loading_pos}')
+    check('v2.3.18 启动过渡期读取 bot._startup_pending',
+          "_startup_pending" in _nav[_grace_pos:_grace_pos + 400])
+    check('v2.3.18 加载等待条件包含 _startup_grace',
+          '_startup_grace' in _nav[_loading_pos - 200:_loading_pos + 300])
+    check('v2.3.18 识别到明确界面后清除 _startup_pending',
+          'self.bot._startup_pending = False' in _nav)
 except Exception as _e:
     check('v2.3.16 global_nav 源码断言', False, str(_e))
+
+# ── 4b. 导航行为分叉：启动期 unknown 显示 loading 且 0 ESC ──
+class _NavBot:
+    """最小导航 bot 桩：记录 ESC / 返回按钮 / 点击次数。"""
+
+    def __init__(self, frames, pending=True):
+        self._frames = list(frames)
+        self._i = 0
+        self.last_snap_empty = False
+        self._startup_pending = pending
+        self.esc_calls = 0
+        self.back_calls = 0
+        self.clicks = 0
+
+    def _ocr_screen(self, img=None, no_cache=False):
+        f = self._frames[min(self._i, len(self._frames) - 1)]
+        self._i += 1
+        return f
+
+    def find_text(self, items, kw, min_conf=0.5):
+        return None
+
+    def template_match(self, *a, **k):
+        return None
+
+    def click_at(self, *a, **k):
+        self.clicks += 1
+
+    def _click_abs(self, *a, **k):
+        self.clicks += 1
+
+    def press_esc(self, *a, **k):
+        self.esc_calls += 1
+
+    def click_back_button(self, *a, **k):
+        self.back_calls += 1
+        return False
+
+    def scroll_wheel(self, *a, **k):
+        pass
+
+    def find_and_focus(self):
+        return 1
+
+
+try:
+    from tasks.global_nav import GlobalNavigator
+
+    # 7a 真机 16:39：启动期黑屏（OCR 全空）→ 「加载界面（启动中）」且 0 ESC
+    _b1 = _NavBot([[]], pending=True)
+    _logs1 = []
+    _nv1 = GlobalNavigator(_b1, logger=lambda m: _logs1.append(m),
+                           max_iter=3, poll=0.01)
+    _nv1.navigate_to('idle_stage')
+    check('v2.3.18 启动期黑屏 → 日志为「加载界面（启动中」',
+          any('加载界面（启动中' in m for m in _logs1),
+          str([m for m in _logs1 if '加载' in m or '未识别' in m][:3]))
+    check('v2.3.18 启动期黑屏 → 不再打印「未识别画面」',
+          not any('未识别画面' in m for m in _logs1),
+          str([m for m in _logs1 if '未识别' in m][:2]))
+    check('v2.3.18 启动期黑屏 → 0 次 ESC / 返回按钮',
+          _b1.esc_calls == 0 and _b1.back_calls == 0,
+          f'esc={_b1.esc_calls} back={_b1.back_calls}')
+    check('v2.3.18 启动期未识别到界面 → 标记保留（下次导航继续等待）',
+          _b1._startup_pending is True)
+
+    # 7b 对照：无启动标记 + 同帧 → 仍走「未识别画面」转场逻辑（分叉证明）
+    _b2 = _NavBot([[]], pending=False)
+    _logs2 = []
+    _nv2 = GlobalNavigator(_b2, logger=lambda m: _logs2.append(m),
+                           max_iter=3, poll=0.01)
+    _nv2.navigate_to('idle_stage')
+    check('v2.3.18 无启动标记时 unknown 仍按「未识别画面」处理（分叉）',
+          any('未识别画面' in m for m in _logs2),
+          str([m for m in _logs2 if '未识别' in m][:2]))
+
+    # 7c 识别到明确界面（主城）→ 清除启动标记
+    _b3 = _NavBot([HOME_FRAME], pending=True)
+    _nv3 = GlobalNavigator(_b3, logger=lambda m: None,
+                           max_iter=2, poll=0.01)
+    _nv3.navigate_to('idle_stage')
+    check('v2.3.18 识别到明确界面后清除 _startup_pending',
+          _b3._startup_pending is False,
+          f'pending={_b3._startup_pending}')
+except Exception as _e:
+    check('v2.3.18 导航启动期行为', False, repr(_e))
 
 # ── 5. _still_loading() 真实构造 + 调用（五态）──
 def make_task(bot):
@@ -168,24 +264,30 @@ class _Bot:
         return self._items
 
 
+# 登录页帧（可交互 → 应判「已就绪」）
+LOGIN_FRAME = [it(700, 640, '点击开始游戏', 0.99)]
+
 try:
-    check('v2.3.16 _still_loading(真机加载页) = True',
+    check('v2.3.18 _still_loading(真机加载页) = True（未就绪）',
           make_task(_Bot(LOADING_FRAME))._still_loading() is True)
-    check('v2.3.16 _still_loading(主城页) = False',
+    check('v2.3.18 _still_loading(主城页) = False（已就绪）',
           make_task(_Bot(HOME_FRAME))._still_loading() is False)
-    check('v2.3.16 _still_loading(裸 object 桩) = False 不崩',
+    check('v2.3.18 _still_loading(登录页) = False（可交互）',
+          make_task(_Bot(LOGIN_FRAME))._still_loading() is False,
+          f'detect={sr.GLOBAL_SCREEN_REGISTRY.detect(LOGIN_FRAME)}')
+    check('v2.3.18 _still_loading(黑屏/无文字) = True（v2.3.16 会误判就绪）',
+          make_task(_Bot([]))._still_loading() is True)
+    check('v2.3.18 _still_loading(裸 object 桩) = False 不崩',
           make_task(object())._still_loading() is False)
-    check('v2.3.16 _still_loading(截图尺寸0) = False 不崩',
-          make_task(_Bot(LOADING_FRAME, empty=True))._still_loading() is False)
-    check('v2.3.16 _still_loading(OCR异常) = False 不崩',
-          make_task(_Bot([], raise_exc=True))._still_loading() is False)
+    check('v2.3.18 _still_loading(OCR异常) = True（保守等，有上限兜底）',
+          make_task(_Bot([], raise_exc=True))._still_loading() is True)
     _b = _Bot(LOADING_FRAME)
     make_task(_b)._still_loading()
-    check('v2.3.16 _ocr_screen 实参 no_cache=True（加载进度每帧变）',
+    check('v2.3.18 _ocr_screen 实参 no_cache=True（加载进度每帧变）',
           _b.calls == 1 and _b.no_cache_seen == [True],
           f'no_cache_seen={_b.no_cache_seen}')
 except Exception as _e:
-    check('v2.3.16 _still_loading 五态', False, repr(_e))
+    check('v2.3.18 _still_loading 多态', False, repr(_e))
 
 # ── 6. 行为分叉：run() 在加载页不得提前 done ──
 # 旧逻辑：is_game_ready 连续 2 次 → 15s 即 return 'done'。
@@ -255,6 +357,24 @@ try:
     # 6c 120s 上限不变
     check('v2.3.16 _WAIT_MAX_S 保持 120（用户确认不改预算）',
           gc._WAIT_MAX_S == 120, f'_WAIT_MAX_S={gc._WAIT_MAX_S}')
+
+    # 6d 真机 16:39 场景：全程黑屏（OCR 读不到任何字）→ 不得 done
+    #    v2.3.16 的兜底会把「读不到字」当成「不是加载页」→ 15s 就 done ✗
+    gc.is_game_running = _SeqDrawer([False, True])
+    _logs_black = []
+    _t_black = make_task(_BotSeq([[]]))
+    _t_black.log = lambda m: _logs_black.append(m)
+    _r_black = _t_black.run()
+    check('v2.3.18 全程黑屏 → 不提前 done（v2.3.16 会误判就绪）',
+          _r_black != 'done', f'result={_r_black}')
+    check('v2.3.18 黑屏期间日志为「仍在加载界面」',
+          any('仍在加载界面' in m for m in _logs_black),
+          str([m for m in _logs_black if '加载' in m][:1]))
+
+    # 6e done 时打上启动过渡标记（供导航把过渡期显示为 loading）
+    check('v2.3.18 启动完成后设置 _startup_pending=True',
+          getattr(_t_seq.bot, '_startup_pending', None) is True,
+          f'pending={getattr(_t_seq.bot, "_startup_pending", None)}')
 
     (gc.is_game_running, gc.is_game_ready, gc.launch_game,
      gc.resolve_launcher_path, gc.resolve_launch_args) = _orig

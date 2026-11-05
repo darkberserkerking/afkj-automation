@@ -229,17 +229,35 @@ class GlobalNavigator:
                    and '确定要退出游戏' in it[2] for it in items):
                 self._dismiss_quit_dialog(items)
                 continue
+            # v2.3.18：启动过渡期（启动游戏后 → 登录页/主城出现前）。
+            # 真机 2026-11-05 16:39：启动任务刚 done，画面还是黑屏/logo，
+            # detect 返回 unknown → 连打「未识别画面」并准备 ESC。
+            # 该阶段统一按加载界面等待：不累加 _unknown_streak、不 ESC。
+            _startup_grace: bool = bool(
+                screen == 'unknown'
+                and getattr(self.bot, '_startup_pending', False))
+            # 已识别到明确可交互界面 → 启动过渡期结束
+            if (screen not in ('unknown', 'nav.loading')
+                    and getattr(self.bot, '_startup_pending', False)):
+                try:
+                    self.bot._startup_pending = False
+                except Exception:
+                    pass
             # v2.0.4 / v2.3.16：加载界面 → 等待（不计未识别脱链，绝不 ESC）
             # 双判据：registry 识别为 nav.loading（-1 层）或高置信 OCR 命中
             # 共享词表。必须同时判 screen：nav.loading 层为 -1，若只靠文本
             # 且文本漏读，会落到下方 cur == -1 分支去找「点击开始游戏」→
             # 找不到就 _escape() 按 ESC，反而把加载页按崩。
-            if (screen == 'nav.loading'
+            if (_startup_grace
+                    or screen == 'nav.loading'
                     or any(len(it) >= 4 and it[3] >= 0.8
                            and any(kw in it[2] for kw in LOADING_MARKS)
                            for it in items)):
                 self._unknown_streak = 0
-                self._log("[信息] 游戏加载中，等待…")
+                if _startup_grace:
+                    self._log("[信息] 加载界面（启动中，等待画面就绪）…")
+                else:
+                    self._log("[信息] 游戏加载中，等待…")
                 self._sleep(5.0)
                 continue
             self._log(
