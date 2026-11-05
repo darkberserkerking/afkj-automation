@@ -42,6 +42,7 @@ SUITES = {
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
+    'tests/test_battle_count_consistency.py': ({1, 2, 3}, False),
     'tests/test_goddess_trial_dryrun.py': ({2, 3}, False),
     'tests/test_guild_battle_dryrun.py': ({2, 3}, False),
     'tests/test_guild_result_matrix.py': ({1, 2, 3}, False),
@@ -110,7 +111,8 @@ CHANGE_MAP = [
                             'tests/test_orb_reset_on_end.py',
                             'tests/test_imprint_pick_blacklist.py']),
     ('tasks/guild_battle.py', ['tests/test_guild_battle_dryrun.py']),
-    ('afk_bot/auto_farm/loop.py', ['tests/test_afk_limit_confirm.py']),
+    ('afk_bot/auto_farm/loop.py', ['tests/test_afk_limit_confirm.py',
+                                   'tests/test_battle_count_consistency.py']),
     ('afk_bot/updater.py', ['tests/test_updater_verify.py']),
     ('afk_bot/auto_farm/formation.py',
      ['tests/test_challenge_btn_verify.py']),

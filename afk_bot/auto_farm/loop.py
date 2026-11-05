@@ -642,6 +642,37 @@ class AFKBotCore:
         """推送统计数据到 GUI。"""
         self._stats_tracker.push()
 
+    def _credit_battle(self, won: bool, mode: str, reason: str = '') -> None:
+        """补记一场「被抢先处理」的战斗（v2.3.20）。
+
+        背景（真机 2026-11-05 16:49 用户报「GUI 次数与日志不符」）：
+        主循环先让 navigator 的 `_handle_common_phase` 处理 result 阶段，
+        结算页被它关掉后 `phase == 'battle'` 分支根本走不到；unknown 分支
+        的「结算复查命中」也直接 continue —— 两条路径都绕过了 897 行的
+        `total_battles += 1`，导致 GUI 少计（5 场只显示 2 次）。
+
+        本方法把「计数 + 胜场 + 推进 + 推送」收口到一处，两条补记路径共用，
+        避免以后再各写一份又漏一处。
+
+        Args:
+            won: 本场是否胜利（决定 stage_progress 是否 +1）
+            mode: 当前挑战模式（'huanling' / 'normal'），用于胜场归属
+            reason: 日志附加说明（内部补记原因）
+        """
+        stats: Dict[str, Any] = self.stats
+        stats['total_battles'] = stats.get('total_battles', 0) + 1
+        if won:
+            if mode == 'huanling':
+                stats['huanling_wins'] = stats.get('huanling_wins', 0) + 1
+            else:
+                stats['normal_wins'] = stats.get('normal_wins', 0) + 1
+            stats['stage_progress'] = stats.get('stage_progress', 0) + 1
+            stats['本轮进度'] = stats['stage_progress']
+            _tail = f'（{reason}）' if reason else ''
+            self._log('info', f'[成功] 推进+1关{_tail}')
+        self.set_status(round=stats['total_battles'])
+        self._push_stats()
+
     # ── 赛季关卡检测 ──────────────────────────────────────────
 
     def _detect_season_stages(self) -> Tuple[int, int]:
@@ -852,6 +883,17 @@ class AFKBotCore:
                     self._battle_monitor, 'last_result', 'defeat'
                 ) == 'defeat'
             )
+            # v2.3.20（真机 2026-11-05 16:49 用户报「GUI 次数与日志不符」）：
+            # navigator 抢先关掉**胜利**结算时，phase=='battle' 分支根本走不到
+            # → total_battles / stage_progress 双双漏计。与 _pending_defeat
+            # 并列记录，在 formation 阶段统一补齐。
+            self._pending_victory: bool = (
+                not self._first_loop
+                and prev_phase == 'result' and phase != 'result'
+                and getattr(
+                    self._battle_monitor, 'last_result', ''
+                ) == 'victory'
+            )
             self._first_loop = False
 
             # ── result 循环检测 ────────────────────────────
@@ -1057,18 +1099,17 @@ class AFKBotCore:
                 # 当 navigator 的 _handle_common_phase 处理了 result 阶段
                 # （点击"再次挑战"→进入备战），核心的战斗处理被跳过，
                 # 需要在这里补齐 formation_idx 递增和 need_switch 设置。
-                if self._pending_defeat:
-                    # ── 补齐被跳过的战斗统计 ──────────────
-                    stats = self.stats
-                    stats['total_battles'] = stats.get('total_battles', 0) + 1
-                    self.set_status(round=stats['total_battles'])
-                    if current_mode == 'huanling':
-                        stats['huanling_wins'] = stats.get('huanling_wins', 0) + 1
-                    else:
-                        stats['normal_wins'] = stats.get('normal_wins', 0) + 1
-                    self._push_stats()
+                if self._pending_defeat or self._pending_victory:
+                    # ── 补齐被跳过的战斗统计（统一走 _credit_battle）──
+                    self._credit_battle(
+                        self._pending_victory,
+                        current_mode,
+                        '胜利结算被导航器抢先，已补记'
+                        if self._pending_victory else '',
+                    )
 
-                    # ── 阵容切换逻辑 ────────────────────────
+                if self._pending_defeat:
+                    # ── 阵容切换逻辑（仅失败）───────────────
                     self.manual_no_progress_count += 1
                     cnt: int = self.manual_no_progress_count
                     lbl: str = (
@@ -1116,6 +1157,7 @@ class AFKBotCore:
                     else:
                         need_switch = True
                 self._pending_defeat = False
+                self._pending_victory = False   # v2.3.20：补齐后同轮清除
                 # 消费完上一轮"推荐阵容用完"标志后重置，
                 # 供本次 prepare 合并 switch_formation 的新检测结果
                 self._formation_exhausted = False
@@ -1318,6 +1360,15 @@ class AFKBotCore:
                         '[信息] 结算复查命中，直接处理结算'
                         f' | 识别到: {_rs_texts[:8]}'
                     )
+                    # v2.3.20：这条路径直接关结算后 continue，绕过了
+                    # phase=='battle' 的计数点 → total_battles/stage_progress
+                    # 双双漏计（真机 5 场只显示 2 次）。此处当场补记。
+                    _won: bool = any(
+                        ('战斗胜利' in _s) or ('胜利' in _s)
+                        for _s in _rs_texts
+                    )
+                    self._credit_battle(_won, current_mode,
+                                        '结算复查路径补记')
                     self._battle_monitor.step_close_result()
                     self._stop_event.wait(1)
                     continue
