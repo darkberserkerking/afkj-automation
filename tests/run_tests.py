@@ -39,6 +39,7 @@ SUITES = {
     'tests/test_navigator_smoke.py': ({1, 2, 3}, False),
     'tests/test_home_task_dryrun.py': ({1, 2, 3}, False),
     'tests/test_gui_drawer_smoke.py': ({1, 2, 3}, True),      # Tk 独占
+    'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_goddess_trial_dryrun.py': ({2, 3}, False),
     'tests/test_guild_battle_dryrun.py': ({2, 3}, False),
     'tests/test_guild_result_matrix.py': ({1, 2, 3}, False),

@@ -273,6 +273,10 @@ class App(ctk.CTk):
             }
         }
 
+        # v2.3.15：本次运行的统计基线（后台 stats 为进程级单例，跨运行累加）
+        self._run_base_battles = 0
+        self._run_base_stages = 0
+
         self._cfg = {
             'log_callback': None,
             'status_callback': None,
@@ -671,6 +675,32 @@ class App(ctk.CTk):
             log_hdr, text='LOG', font=('Consolas', 12, 'bold'),
             text_color='#475569', anchor='w'
         ).pack(side='left', padx=(SPACE_XS, 0))
+
+        # ── 实时状态（v2.3.15）：自动推图累计挑战 / 已通关层数 ──
+        # 数据链路：StatsTracker.push → _update_status → __status__ 队列
+        #           → _flush（主线程）→ _refresh_ui。此处只建显示控件。
+        self._stat_bar = ctk.CTkFrame(log_hdr, fg_color='transparent')
+        self._stat_bar.pack(side='right', padx=(0, SPACE_XS))
+        ctk.CTkLabel(
+            self._stat_bar, text='累计挑战',
+            font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
+        ).pack(side='left')
+        self._lbl_stat_battles = ctk.CTkLabel(
+            self._stat_bar, text='0',
+            font=('Microsoft YaHei UI', 12, 'bold'), text_color=TEXT_BRIGHT,
+            anchor='w',
+        )
+        self._lbl_stat_battles.pack(side='left', padx=(SPACE_XS, SPACE_MD))
+        ctk.CTkLabel(
+            self._stat_bar, text='已通关',
+            font=('Microsoft YaHei UI', 12), text_color=TEXT_DIM,
+        ).pack(side='left')
+        self._lbl_stat_stages = ctk.CTkLabel(
+            self._stat_bar, text='0',
+            font=('Microsoft YaHei UI', 12, 'bold'), text_color=TEXT_BRIGHT,
+            anchor='w',
+        )
+        self._lbl_stat_stages.pack(side='left', padx=(SPACE_XS, 0))
 
         # ── 容器：日志 ──
         self._log_container = ctk.CTkFrame(parent, fg_color='transparent')
@@ -2182,8 +2212,27 @@ class App(ctk.CTk):
         self._log_queue.put(('__status__', dict(self._status)))
 
     def _refresh_ui(self, data=None):
-        """v1.8.80：头部状态栏已删 → 状态刷新变空操作（保留方法兼容旧调用）"""
-        return
+        """刷新实时状态显示（由 _flush 在主线程调用，后台线程禁止直调）。
+
+        v1.8.80 删除头部状态栏后本方法退化为空操作；v2.3.15 重新启用，
+        只消费自动推图统计的「本次运行增量」= 当前累计 - 启动基线，
+        避免后台 stats 进程级单例跨运行累加污染显示。
+        """
+        if not data:
+            return
+        stats = data.get('stats') or {}
+        try:
+            battles = max(0, int(stats.get('total_battles', 0) or 0)
+                          - self._run_base_battles)
+            stages = max(0, int(stats.get('stage_progress', 0) or 0)
+                         - self._run_base_stages)
+        except (TypeError, ValueError):
+            return
+        try:
+            self._lbl_stat_battles.configure(text=str(battles))
+            self._lbl_stat_stages.configure(text=str(stages))
+        except Exception:
+            pass  # 窗口销毁中
 
     # ────────────────────────────────────────────────────────────────
     #  控制按钮
@@ -2209,6 +2258,17 @@ class App(ctk.CTk):
                 self._log_queue.get_nowait()
             except queue.Empty:
                 break
+
+        # v2.3.15：本次运行统计基线（bot.stats 与后台 StatsTracker 同一 dict）
+        _bot_stats = getattr(getattr(self, '_bot', None), 'stats', None)
+        if isinstance(_bot_stats, dict):
+            self._run_base_battles = int(_bot_stats.get('total_battles', 0) or 0)
+            self._run_base_stages = int(_bot_stats.get('stage_progress', 0) or 0)
+        else:
+            self._run_base_battles = 0
+            self._run_base_stages = 0
+        self._lbl_stat_battles.configure(text='0')
+        self._lbl_stat_stages.configure(text='0')
 
         # 更新 bot 配置（bot 已在后台初始化完毕）
         self._bot.log = self._append_log

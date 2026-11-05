@@ -390,6 +390,45 @@ try:
 except Exception as _e2:
     check('v2.3.2 抽屉更新区布局断言', False, str(_e2))
 
+# ── v2.3.15：实时状态显示（累计挑战 / 已通关层数）──
+try:
+    _lb = app._lbl_stat_battles
+    _ls = app._lbl_stat_stages
+    _bar = app._stat_bar
+    check('v2.3.15 累计挑战 Label 存在且初始为 0',
+          _lb.cget('text') == '0', repr(_lb.cget('text')))
+    check('v2.3.15 已通关 Label 存在且初始为 0',
+          _ls.cget('text') == '0', repr(_ls.cget('text')))
+    check('v2.3.15 状态条布局在右侧（side=right）',
+          _bar.pack_info().get('side') == 'right',
+          str(_bar.pack_info().get('side')))
+    _f_exp = ('Microsoft YaHei UI', 12, 'bold')
+    check('v2.3.15 累计挑战数值字体 = Microsoft YaHei UI 12 bold',
+          _lb.cget('font') == _f_exp, repr(_lb.cget('font')))
+    check('v2.3.15 已通关数值字体 = Microsoft YaHei UI 12 bold',
+          _ls.cget('font') == _f_exp, repr(_ls.cget('font')))
+    check('v2.3.15 累计挑战数值颜色 = TEXT_BRIGHT',
+          _lb.cget('text_color') == afk_gui.TEXT_BRIGHT,
+          repr(_lb.cget('text_color')))
+    check('v2.3.15 已通关数值颜色 = TEXT_BRIGHT',
+          _ls.cget('text_color') == afk_gui.TEXT_BRIGHT,
+          repr(_ls.cget('text_color')))
+    check('v2.3.15 log_hdr 内包含 _stat_bar',
+          any(str(_c) == str(_bar) for _c in _bar.master.winfo_children()))
+    # _refresh_ui 可调用（非空操作）：主线程直接喂状态
+    app._refresh_ui({'stats': {'total_battles': 5, 'stage_progress': 3},
+                     'running': True})
+    check('v2.3.15 _refresh_ui 累计挑战显示 5',
+          _lb.cget('text') == '5', repr(_lb.cget('text')))
+    check('v2.3.15 _refresh_ui 已通关显示 3',
+          _ls.cget('text') == '3', repr(_ls.cget('text')))
+    app._refresh_ui({'stats': {'total_battles': 0, 'stage_progress': 0}})
+    check('v2.3.15 _refresh_ui 复位回到 0',
+          _lb.cget('text') == '0' and _ls.cget('text') == '0',
+          f"{_lb.cget('text')}/{_ls.cget('text')}")
+except Exception as _e3:
+    check('v2.3.15 实时状态显示断言', False, str(_e3))
+
 print()
 if FAILED:
     print(f'❌ {len(FAILED)} 项失败: {FAILED}')
