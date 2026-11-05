@@ -555,20 +555,28 @@ def _push_report_via_git(folder: Path) -> bool:
                               env=(_env or env), capture_output=True,
                               text=True, timeout=120, **nowin)
 
-    # 分支基点：优先取报告仓库已有分支，否则用本地 HEAD 的树
+    # 分支基点：**只接受"干净"的远程分支**（顶层只有 bug-reports/ 或空）
+    #   真机 11:32 踩过：空仓库时回退本地 HEAD → 把整个源码树推进报告仓库 ✗
+    #   → 这里做一次"干净校验"：顶层条目出现非 bug-reports/ 的，一律**不继承**
     base = ''
+    force = False
     r = g('ls-remote', remote, f'refs/heads/{BRANCH}')
     if r.returncode == 0 and r.stdout.strip():
         try:
-            base = g('fetch', '--quiet', remote,
-                     f'refs/heads/{BRANCH}').returncode == 0 and \
-                   g('rev-parse', 'FETCH_HEAD').stdout.strip() or ''
+            if g('fetch', '--quiet', remote, f'refs/heads/{BRANCH}').returncode == 0:
+                base = g('rev-parse', 'FETCH_HEAD').stdout.strip()
+            if base:
+                ls = g('ls-tree', '--name-only', base).stdout.split()
+                _dirty = [x for x in ls if not x.startswith('bug-reports')]
+                if _dirty:
+                    # 远程分支被污染过（例如曾继承源码树）→ 用孤儿提交 + 强推覆盖 ✓
+                    base = ''
+                    force = True
         except Exception:
             base = ''
-    if not base:
-        base = g('rev-parse', 'HEAD').stdout.strip()
-    if not base:
-        return False
+    # ⚠️ 报告仓库还没有该分支时 **绝不能**拿本地代码仓库的 HEAD 当基点 ✗
+    #   真机 11:32 踩过：空仓库 → 回退到本地 HEAD → 把整个源码树推进了报告仓库 ✗
+    #   正确做法：**孤儿提交**（不继承任何树）✓
 
     idx = Path(tempfile.gettempdir()) / f'afkj_bugidx_{os.getpid()}'
     try:
@@ -576,8 +584,10 @@ def _push_report_via_git(folder: Path) -> bool:
     except Exception:
         pass
     e2 = {**env, 'GIT_INDEX_FILE': str(idx)}
-    if g('read-tree', base, _env=e2).returncode != 0:
-        return False
+    if base:
+        if g('read-tree', base, _env=e2).returncode != 0:
+            return False
+    # base 为空 → 索引本来就是空的（孤儿提交），无需 read-tree ✓
     sub = f'bug-reports/{folder.name}'
     added = False
     for name in ('shot.png', 'app.log', 'meta.json', 'REPORT.md'):
@@ -595,12 +605,14 @@ def _push_report_via_git(folder: Path) -> bool:
     tree = g('write-tree', _env=e2).stdout.strip()
     if not tree:
         return False
-    commit = g('commit-tree', tree, '-p', base,
+    _parent = ['-p', base] if base else []
+    commit = g('commit-tree', tree, *_parent,
                '-m', f'bug-report: {folder.name}').stdout.strip()
     if not commit:
         return False
-    return g('push', remote,
-             f'{commit}:refs/heads/{BRANCH}').returncode == 0
+    _push_cmd = ['push'] + (['--force'] if force else []) + \
+        [remote, f'{commit}:refs/heads/{BRANCH}']
+    return g(*_push_cmd).returncode == 0
 
 def upload(folder: Path, retries: int = 3) -> Optional[str]:
     """把报告推到私有仓库并（尽力）建 Issue，返回 Issue URL。
