@@ -196,12 +196,12 @@ class TianqiongTrialTask(BaseTask):
     def run(self) -> str:
         """probe →（必要时导航并滚动找卡片）→ 塔内循环。"""
         self.log("启动（玩法目录 → 天穹试炼 → 塔内循环挑战）")
-        # v2.3.30 用户规则：模板优先；降级必须说明检索范围与未匹配原因
+        # v2.3.31 用户规则（22:05 细化）：按元素类型分流
+        #   有明确文字 → OCR（首选）；只有符号/图案 → 模板匹配
         self.log(
-            "[信息] 模板库检索：templates/ 共 28 个模板 → "
-            "「>」用 btn_formation_next.png、返回用 btn_back_*；"
-            "「出发！/挑战！/下一关/再次挑战/通关阵容/一键采用/天穹试炼卡片」"
-            "库中确实没有对应模板 → 降级 OCR（规则允许的降级路径）")
+            "[信息] UI 定位分流（用户规则）：文字按钮「出发！/挑战！/下一关/"
+            "再次挑战/通关阵容/一键采用/天穹试炼卡片」→ OCR；"
+            "符号图案「>」用 btn_formation_next.png、返回用 btn_back_* → 模板")
         probe = self.startup_probe()
         if probe == 'failed':
             if self.check_stop():
@@ -273,8 +273,8 @@ class TianqiongTrialTask(BaseTask):
     def _find_go(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找当日可进入的「出发！」按钮坐标 (cx, cy)；跳过已确认无层的塔。
 
-        **降级说明（v2.3.30）**：已检索 templates/ 全部 28 个模板，**没有**
-        「出发！」按钮模板 → 只能用 OCR，属规则允许的降级。
+        **定位方式（v2.3.31）**：「出发！」是**有明确文字**的按钮 → 按用户
+        规则直接走 OCR（首选方案，不是降级），无需在模板库找文字模板。
 
         阈值用 `_GO_MIN_CONF`(0.6) 而非按钮通用的 0.85：「出发」仅两字，
         短文本 OCR 置信度波动大，卡 0.85 会漏检（真机 2026-11-05 19:38
@@ -336,8 +336,8 @@ class TianqiongTrialTask(BaseTask):
     def _find_challenge(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找塔内「挑战！」坐标 (cx, cy)。
 
-        **降级说明（v2.3.30）**：模板库 28 个模板中**没有**「挑战！」按钮模板
-        → 只能用 OCR，属规则允许的降级。
+        **定位方式（v2.3.31）**：「挑战！」是**有明确文字**的按钮 → 按用户
+        规则直接走 OCR（首选方案，不是降级）。
 
         去标点后**全等** → 天然排除「挑战奖励：」（归一见「挑战奖励」）
         与「继续挑战 / 再次挑战」（归一见完整四字）。
@@ -430,13 +430,14 @@ class TianqiongTrialTask(BaseTask):
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
             self._sleep(1.5)
 
-    # ── 模板库检索结论（v2.3.30，用户规则「模板优先，禁止 OCR 兜底」）──
-    # 已核对 templates/ 全部 28 个模板：
-    #   ✅ 命中：btn_formation_next.png（`>` 切换阵容）
-    #   ✅ 命中：btn_back_arrow / btn_back_dark / btn_back_purple（返回，已用于 _back）
-    #   ❌ 库中确实没有：「出发！」「挑战！」「下一关」「再次挑战」
-    #      「通关阵容」「一键采用」「天穹试炼」卡片
-    #      → 这些只能用 OCR，属规则允许的降级，各方法 docstring 已标注。
+    # ── UI 定位分流（v2.3.31，用户 22:05 细化规则）──
+    #   · 有明确文字的元素 → OCR（首选，不是降级）：
+    #     「出发！」「挑战！」「下一关」「再次挑战」「通关阵容」「一键采用」
+    #     「天穹试炼」卡片
+    #   · 只有符号/图案的元素 → 模板匹配（templates/ 共 28 个，已核对）：
+    #     `>` 用 btn_formation_next.png；返回用
+    #     btn_back_arrow / btn_back_dark / btn_back_purple（已用于 _back）
+    #   · 符号类模板未命中禁止改用 OCR 猜同一目标；仅此时才降级并说明原因。
     _ARROW_TPLS: Tuple[str, ...] = ('btn_formation_next.png',)
 
     def _find_btn_template(self, names: Tuple[str, ...],
@@ -487,9 +488,9 @@ class TianqiongTrialTask(BaseTask):
     def _switch_formation(self, times: int) -> bool:
         """在「通关阵容」面板内点 `>` 切换 N 套推荐阵容。
 
-        v2.3.30 用户规则：**模板优先，禁止 OCR 兜底**。
-        `>` 用模板库 `btn_formation_next.png`；未命中时只记录检索范围与原因，
-        不做 OCR 猜测（单字符 OCR 曾导致误点工具按钮 + 误判阵容用完）。
+        v2.3.31 用户规则：**符号/图案类元素用模板**。`>` 是纯符号，
+        用模板库 `btn_formation_next.png`；未命中时只记录检索范围与原因，
+        不做 OCR 猜测（符号 OCR 曾导致误点工具按钮 + 误判阵容用完）。
 
         ⚠️ 坐标语义：`template_match` 返回**屏幕绝对坐标** → 必须配 `_click_abs`；
         用 `click_at` 会被再转一次 image→screen，双重偏移（真机 20:39 实测
