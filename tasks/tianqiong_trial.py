@@ -58,6 +58,14 @@ _BTN_MIN_CONF: float = 0.85      # 按钮判据阈值（出发 0.957 / 挑战 0.
 
 _SCROLL_CLICKS: int = -30        # 负值 = 向下滚
 _SCROLL_SETTLE: float = 0.3
+
+# ── 防死循环护栏（v2.3.21 QA 复核：此前点击无效会无限重试）──────
+# oneshot=True 会把 max_time/max_turns 强制为 None，max_battles 默认 0，
+# 若「挑战/出发/F」任一失效且没有上限，任务永不结束（实测连点 120 次）。
+_MAX_ROUNDS: int = 400           # 单次任务硬上限（四塔满层正常约 100+ 轮）
+_NO_PROGRESS_BACK: int = 3       # 画面连续无变化 N 帧 → 返回上一层重试
+_NO_PROGRESS_FAIL: int = 6       # 画面连续无变化 N 帧 → 终止
+_F_TIMEOUT_FAIL: int = 2         # 连续 N 次按 F 后未结算 → 终止
 _SCROLL_MAX: int = 14
 _ENTER_TIMEOUT: float = 12.0     # 点卡片后等塔列表
 _RESULT_TIMEOUT: float = 90.0    # 战斗结算最长等待
@@ -81,12 +89,9 @@ class TianqiongTrialTask(BaseTask):
     label = label
     description = description
 
-    # 循环语义声明（v2.1.9）：塔列表 / 塔内楼层 / 备战 均属本任务执行域
-    loop_screens = frozenset({
-        'tianqiong.tower_list',
-        'tianqiong.floor',
-        'tianqiong.battle_prep',
-    })
+    # v2.3.21（QA 复核）：原 `loop_screens` 声明了 tianqiong.* 三个 id，但
+    # 它们从未在 screen_registry 注册 → 永远不为真，是**死声明**（调度器照常
+    # 走完整导航）。已移除，避免误导；若将来要做「就地续跑」，必须先注册判据。
 
     options_schema = {
         'max_battles': {
@@ -199,12 +204,22 @@ class TianqiongTrialTask(BaseTask):
         return towers >= 2
 
     def _is_floor_page(self, items: List[Tuple]) -> bool:
-        """塔内楼层页：「未解锁」（更高层）且（「挑战！」或「已通关」）。"""
+        """塔内楼层页。
+
+        主判据：「未解锁」（更高层）且（「挑战！」或「已通关」）。
+        兜底（v2.3.21）：某塔全部通关后可能不再显示「未解锁」，此时用
+        「塔名 + 已通关/还差N层」判定，避免误落 unknown 后按 ESC 脱离。
+        """
         texts = self._texts(items, _TEXT_MIN_CONF)
         has_locked = any(_LOCKED_WORD in t for t in texts)
         has_action = (any(_norm(t) == _CHALLENGE_WORD for t in texts)
                       or any(_CLEARED_WORD in t for t in texts))
-        return has_locked and has_action
+        if has_locked and has_action:
+            return True
+        has_tower = any(k in t for t in texts for k in _TOWER_KWS)
+        has_progress = (any(_CLEARED_WORD in t for t in texts)
+                        or any('还差' in t for t in texts))
+        return has_tower and has_progress
 
     def _is_battle_prep(self, items: List[Tuple]) -> bool:
         """备战界面：「通关阵容」或「一键采用」（同挂机/结社战线）。"""
@@ -316,10 +331,13 @@ class TianqiongTrialTask(BaseTask):
             self._sleep(1.5)
 
     def _press_f(self) -> None:
-        """按 F 开战 + 统计（turns 只读，只能递增 stats['total_battles']）。"""
+        """按 F 开战（**不在这里计数**：F 失效时会虚增，见 v2.3.21）。"""
         self.log("[信息] 按 F 开始战斗")
         self.bot.press_f('天穹试炼_按F')
         self._sleep(2.0)
+
+    def _credit_battle(self) -> None:
+        """确认结算后才计入统计（`turns` 只读，只能递增 stats）。"""
         try:
             self.stats['total_battles'] = int(
                 self.stats.get('total_battles', 0)) + 1
@@ -368,11 +386,18 @@ class TianqiongTrialTask(BaseTask):
         self.log("[信息] 结算页无可点按钮 → 关闭（返回 / ESC）")
         self._back()
 
-    def _battle_once(self) -> None:
-        """一局：通关阵容 → 一键采用 → F → 等结算。"""
+    def _battle_once(self) -> bool:
+        """一局：通关阵容 → 一键采用 → F → 等结算。
+
+        Returns:
+            bool: True = 已确认结算（此时才计数）；False = 超时未结算
+        """
         self._setup_lineup()
         self._press_f()
-        self._wait_result()
+        ok = self._wait_result()
+        if ok:
+            self._credit_battle()
+        return ok
 
     # ── 主循环（状态机）────────────────────────────────────
 
@@ -383,23 +408,59 @@ class TianqiongTrialTask(BaseTask):
         （塔内楼层页也可能出现多个「之塔」文案，先判塔内更安全）。
         """
         stall: int = 0
+        # v2.3.21 防死循环三件套（QA 实测：点击无效会无限重试）
+        rounds: int = 0
+        no_progress: int = 0
+        f_timeout: int = 0
+        prev_fp: Tuple[str, ...] = ()
         while True:
             if self.check_stop():
                 return self._stop_result()
             mb = int(self.options.get('max_battles') or 0)
             if mb > 0 and self.battles >= mb:
                 return self._stop_result()
+            rounds += 1
+            if rounds > _MAX_ROUNDS:
+                self.log(f"[错误] 超过 {_MAX_ROUNDS} 轮仍未结束 → 终止（防死循环）")
+                return 'failed'
             self.count_iter()
 
             items = self.bot._ocr_screen()
             if self.dismiss_blink_popup(items=items):
                 continue
 
+            # ── 画面无进展检测：点击后画面文本集合完全不变 → 该动作无效 ──
+            fp: Tuple[str, ...] = tuple(sorted(
+                str(it[2]) for it in items if len(it) >= 4))
+            if fp != prev_fp:
+                prev_fp = fp
+                no_progress = 0
+            else:
+                no_progress += 1
+                if no_progress >= _NO_PROGRESS_FAIL:
+                    self.log(f"[错误] 画面连续 {no_progress} 帧无变化 → 终止"
+                             f"｜候选={self._cands(items)}")
+                    return 'failed'
+                if no_progress == _NO_PROGRESS_BACK:
+                    # 注意：这里**不清零** —— 清零会导致「3→back→3→back」永远
+                    # 到不了 FAIL 阈值（自身踩过的坑）。只有画面真变了才清零。
+                    self.log(f"[警告] 画面连续 {no_progress} 帧无变化"
+                             " → 返回上一层重试")
+                    self._back()
+                    continue
+
             # ① 备战 → 打一局
             if self._is_battle_prep(items):
                 stall = 0
                 self.log("[信息] 备战界面 → 通关阵容 → 一键采用 → F")
-                self._battle_once()
+                if not self._battle_once():
+                    f_timeout += 1
+                    if f_timeout >= _F_TIMEOUT_FAIL:
+                        self.log(f"[错误] 连续 {f_timeout} 次按 F 后战斗未结算"
+                                 " → 终止（窗口失焦/F 未生效？）")
+                        return 'failed'
+                else:
+                    f_timeout = 0
                 continue
 
             # ② 塔内楼层 → 点「挑战！」

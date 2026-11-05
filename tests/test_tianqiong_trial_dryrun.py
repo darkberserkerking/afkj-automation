@@ -305,6 +305,22 @@ check('7a max_battles=0 → summary 正常', t7.summary() == '自动打当天开
       t7.summary())
 check('7b summary ≤14 字', len(t7.summary()) <= 14, t7.summary())
 
+# ═══════════════════════════════════════════════════════════
+#  8. 点击无效（画面永不变化）→ 不得无限重试
+#     v2.3.21：QA 实测「挑战/出发/F 失效时会连点 120 次永不结束」。
+#     这里用同一帧循环模拟"点了没反应"，验证硬上限/无进展护栏生效。
+# ═══════════════════════════════════════════════════════════
+print('\n── 8. 点击无效不死循环 ──')
+t8, b8 = _make_task([FLOOR])          # 单帧：每轮返回同一画面 = 点击无效
+r8 = t8.run()
+check('8a 画面永不变化 → failed（不死循环）', r8 == 'failed', f'r={r8}')
+check('8b 触发过返回重试', b8.backs >= 1, f'backs={b8.backs}')
+_nch = sum(1 for c in b8.clicks if c[2] == '天穹试炼_挑战')
+check('8c 挑战点击次数被限制（≤8）', _nch <= 8, f'n={_nch}')
+check('8d 日志含「无变化」诊断',
+      any('无变化' in m for m in t8._logs),
+      str([m for m in t8._logs if '无变化' in m][:1]))
+
 print('\n' + '─' * 54)
 if _FAIL:
     print(f'  通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)}')
