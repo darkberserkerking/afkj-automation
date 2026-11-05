@@ -67,6 +67,17 @@ IMPRINT_MASK_WORDS: Tuple[str, ...] = ('选择烙印', '直至战斗结束')
 # _pick_door 空转。OCR 实测 2026-09-07 家园.png：英雄厅堂/神秘屋/
 # 先锋关卡 均 conf≥0.97，选门地图绝不会出现这些词）
 HOME_MASK_WORDS: Tuple[str, ...] = ('英雄厅堂', '神秘屋', '先锋关卡')
+# v2.3.16 启动加载界面文案（真机 2026-11-05 12:19「屏幕截图」OCR 实测：
+# 1281×1033 整图 1x/2x/3x 多尺度均读到「正在初始化游戏（5/14）」
+# conf=0.955~0.969、cy≈956/cx≈622）。旧判据只认「正在加载游戏」→ 漏判，
+# 导航判 unknown 后连按 ESC 脱离。只用独占句式文案；右上角「客服/网络诊断/
+# 修复」为登录页共有词（且「网络诊断」已在 nav.login 判据里），不作主判据。
+# 只用「正在…」完整句式，不用裸子串「初始化游戏」「加载游戏」——后者会误伤
+# 「加载游戏资源」「初始化游戏设置」「加载游戏失败，请重试」「重新加载游戏」
+# 等非加载页文案（QA 实测 4/8 误判 → 导航空等 / 启动任务卡满 120s）。
+LOADING_MARKS: Tuple[str, ...] = (
+    '正在加载游戏', '正在初始化游戏',
+)
 
 # 女神试炼判据词（原 goddess_trial 常量上收全局）
 GODDESS_SELECT_MARK: str = '今日可挑战层数上限'
@@ -503,12 +514,17 @@ def build_default_registry() -> ScreenRegistry:
         priority=200,   # 最高：优先于一切画面
         desc='退出确认弹窗（ESC 陷阱；动作=点 X 取消，绝不点确定）',
     )
-    # v2.0.4：加载界面（登录前/切场景）
+    # v2.0.4 / v2.3.16：加载界面（登录前/切场景/启动初始化）
+    # 保留原词「正在加载游戏」（test_quit_dialog 5c 断言依赖），扩到
+    # 「正在初始化游戏（5/14）」等启动期文案；screen_id/priority/中文名/
+    # 层级均不动，避免牵动 nav_planner 无出边规则与层级一致性测试。
     reg.register(
         'nav.loading',
-        lambda items: (lambda h: h('正在加载游戏'))(_mk_has(items)),
+        lambda items: (lambda h: any(h(kw) for kw in LOADING_MARKS))(
+            _mk_has(items)),
         priority=131,
-        desc='加载界面（OCR 实测「正在加载游戏。」conf=0.98/0.99；动作=等待）',
+        desc='加载界面（OCR 实测「正在加载游戏。」conf=0.98/0.99、'
+             '「正在初始化游戏（5/14）」conf=0.96；动作=等待）',
     )
     reg.register(
         'nav.login',

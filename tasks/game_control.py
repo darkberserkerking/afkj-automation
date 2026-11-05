@@ -56,6 +56,32 @@ class StartGameTask(BaseTask):
         self.log("[信息] 任务被手动停止")
         return 'stopped'
 
+    def _still_loading(self) -> bool:
+        """画面是否仍在启动加载界面（v2.3.16）。
+
+        尺寸就绪 ≠ 画面就绪：真机 2026-11-05 12:18，窗口客户区已达
+        1281×1033，但画面仍是「正在初始化游戏（5/14）」加载页；旧逻辑
+        连续 2 次尺寸有效（15s）就宣告 done，导航随即撞加载页 →
+        连续 unknown → ESC/返回按钮交替脱离。
+
+        兜底原则：无 OCR 接口（测试桩）/ 截图尺寸 0 / OCR 异常，一律
+        返回 False 交还原有尺寸判定，绝不因新增检查卡死启动任务。
+        """
+        if getattr(self.bot, 'last_snap_empty', False):
+            return False
+        if not hasattr(self.bot, '_ocr_screen'):
+            return False
+        try:
+            items = self.bot._ocr_screen(no_cache=True) or []
+        except Exception:
+            return False
+        from tasks.screen_registry import LOADING_MARKS
+        return any(
+            len(it) >= 4 and it[3] >= 0.8
+            and any(kw in it[2] for kw in LOADING_MARKS)
+            for it in items
+        )
+
     def summary(self) -> str:
         return "检测并启动游戏客户端（已运行则跳过）"
 
@@ -118,7 +144,15 @@ class StartGameTask(BaseTask):
                 self.log(f"[信息] 游戏窗口已出现（{int(waited)}s），"
                          "等待画面就绪…")
             if is_game_ready(self.bot):
-                # 连续 2 次尺寸有效才算稳定（防加载期尺寸抖动）
+                # v2.3.16：尺寸有效但可能仍在初始化加载页（OCR 实测
+                # 「正在初始化游戏（5/14）」conf≥0.96）→ 清零 streak 继续等，
+                # 绝不把加载页当成「已进游戏」放行给下一任务的全局导航。
+                if self._still_loading():
+                    _ready_streak = 0
+                    self.log(f"[信息] 仍在加载界面，继续等待画面就绪…"
+                             f"（{int(waited)}/{_WAIT_MAX_S} 秒）")
+                    continue
+                # 连续 2 次尺寸有效且已越过加载页才算稳定
                 _ready_streak += 1
                 if _ready_streak >= 2:
                     self.log(f"[成功] 游戏已就绪（画面尺寸有效，"

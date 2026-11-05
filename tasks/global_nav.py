@@ -29,6 +29,7 @@ from tasks.base import BACK_BUTTON_TPLS, BACK_THRESHOLD
 from tasks.nav_planner import plan_path  # v1.9.58 最短路径规划
 from tasks.screen_registry import (
     GLOBAL_SCREEN_REGISTRY,
+    LOADING_MARKS,
     zh_screen,
 )
 
@@ -228,9 +229,16 @@ class GlobalNavigator:
                    and '确定要退出游戏' in it[2] for it in items):
                 self._dismiss_quit_dialog(items)
                 continue
-            # v2.0.4：加载界面 → 等待（不计未识别脱链）
-            if any(len(it) >= 4 and it[3] >= 0.8
-                   and '正在加载游戏' in it[2] for it in items):
+            # v2.0.4 / v2.3.16：加载界面 → 等待（不计未识别脱链，绝不 ESC）
+            # 双判据：registry 识别为 nav.loading（-1 层）或高置信 OCR 命中
+            # 共享词表。必须同时判 screen：nav.loading 层为 -1，若只靠文本
+            # 且文本漏读，会落到下方 cur == -1 分支去找「点击开始游戏」→
+            # 找不到就 _escape() 按 ESC，反而把加载页按崩。
+            if (screen == 'nav.loading'
+                    or any(len(it) >= 4 and it[3] >= 0.8
+                           and any(kw in it[2] for kw in LOADING_MARKS)
+                           for it in items)):
+                self._unknown_streak = 0
                 self._log("[信息] 游戏加载中，等待…")
                 self._sleep(5.0)
                 continue
