@@ -54,7 +54,11 @@ _RESULT_WORDS: Tuple[str, ...] = (
 )
 
 _TEXT_MIN_CONF: float = 0.7      # 文本判据阈值（实测都 ≥0.88）
-_BTN_MIN_CONF: float = 0.85      # 按钮判据阈值（出发 0.957 / 挑战 0.988）
+_BTN_MIN_CONF: float = 0.85      # 按钮判据阈值（挑战 0.988）
+# v2.3.23：「出发」只有两个字，短文本 OCR 置信度波动大（实测截图 0.957，
+# 但真机实时识别可能偏低）→ 单独放宽到 0.6，避免漏检后误判「今日无开放塔」。
+_GO_MIN_CONF: float = 0.6
+_NO_GO_CONFIRM: int = 3          # 连续 N 帧找不到「出发」才判定今日无开放塔
 
 _SCROLL_CLICKS: int = -30        # 负值 = 向下滚
 _SCROLL_SETTLE: float = 0.3
@@ -236,9 +240,14 @@ class TianqiongTrialTask(BaseTask):
         return any(w in t for t in texts for w in _RESULT_WORDS)
 
     def _find_go(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
-        """找当日可进入的「出发！」按钮坐标 (cx, cy)；跳过已确认无层的塔。"""
+        """找当日可进入的「出发！」按钮坐标 (cx, cy)；跳过已确认无层的塔。
+
+        阈值用 `_GO_MIN_CONF`(0.6) 而非按钮通用的 0.85：「出发」仅两字，
+        短文本 OCR 置信度波动大，卡 0.85 会漏检（真机 2026-11-05 19:38
+        即因此误判「今日无开放中的天穹塔」直接结束）。
+        """
         for it in items:
-            if len(it) < 4 or it[3] < _BTN_MIN_CONF:
+            if len(it) < 4 or it[3] < _GO_MIN_CONF:
                 continue
             if _norm(it[2]) != _GO_WORD:
                 continue
@@ -441,6 +450,7 @@ class TianqiongTrialTask(BaseTask):
         no_progress: int = 0
         f_timeout: int = 0
         no_challenge: int = 0        # v2.3.22：塔内连续未见「挑战」的确认计数
+        no_go: int = 0               # v2.3.23：塔列表连续未找到「出发」的确认计数
         prev_fp: Tuple[str, ...] = ()
         while True:
             if self.check_stop():
@@ -537,8 +547,20 @@ class TianqiongTrialTask(BaseTask):
                 stall = 0
                 pos = self._find_go(items)
                 if not pos:
-                    self.log("[成功] 今日无开放中的天穹塔 → 结束")
+                    # v2.3.23：单帧读不到「出发！」不得直接判结束 —— 真机
+                    # 19:38 就因此 2 秒误退（实际当天有开放塔）。改为连续
+                    # 多帧确认，并打印当帧候选便于定位是 OCR 漏检还是确实无塔。
+                    no_go += 1
+                    if no_go < _NO_GO_CONFIRM:
+                        self.log(f"[信息] 塔列表暂未找到「出发！」"
+                                 f"（{no_go}/{_NO_GO_CONFIRM}），等待确认"
+                                 f"｜候选={self._cands(items)}")
+                        self._sleep(1.5)
+                        continue
+                    self.log(f"[成功] 连续 {_NO_GO_CONFIRM} 次未找到「出发！」"
+                             "→ 今日无开放中的天穹塔 → 结束")
                     return 'done'
+                no_go = 0
                 self.log(f"[点击] 「出发！」 | 图像={pos}")
                 self.bot.click_at(pos[0], pos[1], '天穹试炼_出发')
                 self._cur_go = pos
