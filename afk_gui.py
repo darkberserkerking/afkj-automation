@@ -359,6 +359,8 @@ class App(ctk.CTk):
         """启动后静默检查更新（3 秒后，失败不打扰用户）。"""
         try:
             self.after(3000, lambda: self._on_check_update(silent=True))
+            # v2.3.13：启动 5 秒后**补传**历史未成功的 Bug 报告（不遗漏 ✓）
+            self.after(5000, self._retry_pending_reports)
         except Exception:
             pass
 
@@ -1939,6 +1941,23 @@ class App(ctk.CTk):
                     sys.stderr.write(f'[警告] 日志写入失败 | {e}\n')
                 except Exception:
                     pass
+    def _retry_pending_reports(self) -> None:
+        """启动时补传历史未成功的 Bug 报告（保证不遗漏 ✓）。"""
+        def _work():
+            try:
+                from afk_bot import bug_report as BR
+                n = BR.retry_pending()
+                if n:
+                    self._post_ui(lambda: self._append_log(
+                        f'[成功] 🐞 已补传 {n} 条历史 Bug 报告 ✓'))
+            except Exception:
+                pass
+        try:
+            threading.Thread(target=_work, daemon=True,
+                             name='bug-retry').start()
+        except Exception:
+            pass
+
     def _report_bug(self, task: str = '', exc=None) -> None:
         """采集 Bug 现场（游戏截图 + 日志尾部 + 环境）并尝试上传 GitHub。
 
@@ -1971,6 +1990,18 @@ class App(ctk.CTk):
                 return
             self._post_ui(lambda: self._append_log(
                 f'[信息] 🐞 现场已保存：{folder}'))
+            # v2.3.13：截图失败要**明确提示**（激活失败/黑图等 ✓）
+            try:
+                import json as _json
+                _m = _json.loads((folder / 'meta.json').read_text(
+                    encoding='utf-8'))
+                if not _m.get('screenshot_ok'):
+                    _why = _m.get('screenshot_error') or '未知原因'
+                    self._post_ui(lambda: self._append_log(
+                        f'[警告] 🐞 游戏截图失败（{_why}）'
+                        f' —— 日志与环境信息仍已采集并上报 ✓'))
+            except Exception:
+                pass
             if url:
                 self._post_ui(lambda: self._append_log(
                     f'[成功] 🐞 已上传 Issue：{url}'))

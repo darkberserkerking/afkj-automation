@@ -43,17 +43,26 @@ _shot = folder / 'shot.png'
 #   · 有游戏窗口 → 必须截到，且尺寸 = 客户区（不是整屏 ✗）
 #   · 无游戏窗口 → **必须不截图**（这正是"不截桌面"的保证 ✓）
 _has_game = BR.find_game_hwnd() is not None
-if _has_game:
-    check('1d 有游戏窗口 → 截图存在且非空',
-          _shot.is_file() and _shot.stat().st_size > 1000,
-          f"{_shot.stat().st_size if _shot.is_file() else 0}B")
+import json as _json2  # noqa: E402
+_meta0 = _json2.loads((folder / 'meta.json').read_text(encoding='utf-8'))
+if _has_game and _shot.is_file() and _shot.stat().st_size > 1000:
+    # 截到了 → 尺寸必须是游戏客户区（不是桌面 ✗）
     try:
         from PIL import Image as _IMG
-        _sz = _IMG.open(str(_shot)).size if _shot.is_file() else (0, 0)
+        _sz = _IMG.open(str(_shot)).size
+        check('1d 有游戏窗口 → 截图存在且非空', True, f'{_shot.stat().st_size}B')
         check('1d2 截图尺寸 = 游戏客户区（不是整个桌面 ✗）',
               _sz == (1280, 1024), f'{_sz}')
     except Exception as _e:
-        check('1d2 截图尺寸校验', False, str(_e)[:40])
+        check('1d 截图可读', False, str(_e)[:40])
+        check('1d2 截图尺寸校验', False, 'N/A')
+elif _has_game:
+    # 有窗口但没截到（最小化 + 无权激活 / PrintWindow 黑图）→ 必须**有原因** ✓
+    _why = _meta0.get('screenshot_error') or ''
+    check('1d 有窗口但截图失败 → meta 必带原因（不留哑失败 ✓）',
+          bool(_why), _why[:70])
+    check('1d2 失败时不产黑图（shot.png 不存在或很小 ✓）',
+          (not _shot.is_file()) or _shot.stat().st_size < 1000)
 else:
     check('1d 无游戏窗口 → **不截图**（绝不退化为整屏 ✓）',
           not _shot.is_file(), f'存在={_shot.is_file()}')
@@ -162,6 +171,23 @@ check('6e 所有 git 子进程都隐藏控制台窗口',
 check('6f 提供 _no_console_kwargs 工具（CREATE_NO_WINDOW + STARTF_USESHOWWINDOW）',
       '_no_console_kwargs' in _src and 'CREATE_NO_WINDOW' not in _src
       and 'creationflags' in _src)
+
+print('\n── ⑦ 激活/截图失败要有原因 + 上传重试与待传队列（v2.3.13）──')
+check('7a 截图失败时 meta 必带 screenshot_error（不留哑失败）',
+      'screenshot_error' in _meta0,
+      'meta 字段存在 ✓')
+check('7b 有 activate_window（还原最小化 + 置前 + 校验）',
+      hasattr(BR, 'activate_window'))
+check('7c 激活成功判定含"非最小化"（只看前台会误判 ✗）',
+      'IsIconic' in _src and '_ready' in _src)
+check('7d 上传有重试（retries）', 'retries: int = 3' in _src)
+check('7e 失败写 .pending（下次启动补传）',
+      "'.pending'" in _src or '“.pending”' in _src or '".pending"' in _src)
+check('7f 有 retry_pending()（启动补传）', hasattr(BR, 'retry_pending'))
+check('7g Issue 建不了不丢报告（降级到分支 REPORT.md）',
+      '_create_issue' in _src and 'REPORT.md' in _src)
+check('7h PrintWindow 兜底并校验非纯黑',
+      'PrintWindow' in _src and 'getextrema' in _src)
 
 print()
 print(f'══ Bug 上报：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')

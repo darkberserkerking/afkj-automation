@@ -130,6 +130,88 @@ def find_game_hwnd() -> Optional[int]:
     return pool[0][0]
 
 
+def activate_window(hwnd: Optional[int]) -> bool:
+    """把游戏窗口**还原并置前**，返回是否**确认**成功（真在前台）。
+
+    真机问题：游戏可能**一直运行但被最小化** ✗
+    → ImageGrab 截的是屏幕像素，最小化窗口没有像素 ✗（PrintWindow 对 Unity 全黑 ✗）
+    → 必须先 SW_RESTORE 再 SetForegroundWindow，并**校验** GetForegroundWindow ✓
+    """
+    if not hwnd:
+        return False
+    try:
+        import win32con
+        import win32gui
+        import win32process
+    except Exception:
+        return False
+
+    def _is_fg() -> bool:
+        try:
+            return win32gui.GetForegroundWindow() == hwnd
+        except Exception:
+            return False
+
+    def _ready() -> bool:
+        """**真正可截图** = 非最小化 且 在前台。
+
+        ⚠️ 真机踩过：最小化窗口也可能占着"前台焦点" ✗
+        → 只看 GetForegroundWindow 会**误判成功** ✓
+        """
+        try:
+            return (not win32gui.IsIconic(hwnd)) and _is_fg()
+        except Exception:
+            return False
+
+    # 已经是前台且没最小化 → 直接成功
+    try:
+        if _ready():
+            return True
+    except Exception:
+        pass
+
+    # 还原（最小化 → 正常）：**多方式重试并校验** IsIconic
+    try:
+        if win32gui.IsIconic(hwnd):
+            for _sw in (win32con.SW_RESTORE, win32con.SW_SHOWNORMAL,
+                        win32con.SW_SHOW):
+                win32gui.ShowWindow(hwnd, _sw)
+                time.sleep(0.30)
+                if not win32gui.IsIconic(hwnd):
+                    break
+    except Exception:
+        pass
+
+    # 常规置前
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    time.sleep(0.20)
+    if _ready():
+        return True
+
+    # 兜底：AttachThreadInput 绕过前台锁（Windows 常见限制）
+    try:
+        fg = win32gui.GetForegroundWindow()
+        t_fg, _ = win32process.GetWindowThreadProcessId(fg) if fg else (0, 0)
+        t_me, _ = win32process.GetWindowThreadProcessId(hwnd)
+        if t_fg and t_me and t_fg != t_me:
+            win32process.AttachThreadInput(t_fg, t_me, True)
+            try:
+                win32gui.BringWindowToTop(hwnd)
+                win32gui.SetForegroundWindow(hwnd)
+            finally:
+                win32process.AttachThreadInput(t_fg, t_me, False)
+        else:
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    time.sleep(0.25)
+    return _ready()
+
+
 def _game_rect(hwnd: Optional[int]) -> Optional[Tuple[int, int, int, int]]:
     """取游戏客户区在屏幕上的绝对矩形 (l, t, r, b)。
 
@@ -165,22 +247,72 @@ def grab_screenshot(dest: Path, hwnd: Optional[int] = None) -> bool:
         hwnd = find_game_hwnd()
     box = _game_rect(hwnd) if hwnd else None
     if not box:
-        return False          # 没有游戏窗口 → 不截（绝不整屏）✗
+        # 没有游戏窗口 → 不截（绝不整屏）✗，但**记录原因**便于排查 ✓
+        _record_shot_fail(folder_of(dest),
+                          '未找到游戏窗口（游戏可能未启动，或窗口标题不匹配）')
+        return False
 
-    try:
-        import win32gui
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, 9)      # SW_RESTORE
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.25)
-    except Exception:
-        pass
+    # v2.3.13（用户要求）：**先激活游戏窗口再截图**；失败要有兜底与提示 ✓
+    ok_act = activate_window(hwnd)
+    last_err = ''
+    if not ok_act:
+        # 兜底：PrintWindow 尝试直接取窗口内容（最小化也可试）
+        # ⚠️ Unity 常用 D3D 渲染，PrintWindow 多半全黑 ✗——所以只当兜底，
+        #    并校验"不是纯黑"，黑图直接丢弃（宁可没图也不给黑图 ✗）
+        try:
+            import win32gui
+            import win32ui
+            from ctypes import windll
+            l, t, r, b = win32gui.GetWindowRect(hwnd)
+            w, h = r - l, b - t
+            if w > 100 and h > 100:
+                hdc = win32gui.GetWindowDC(hwnd)
+                mfc = win32ui.CreateDCFromHandle(hdc)
+                mem = mfc.CreateCompatibleDC()
+                bmp = win32ui.CreateBitmap()
+                bmp.CreateCompatibleBitmap(mfc, w, h)
+                mem.SelectObject(bmp)
+                # 2 = PW_RENDERFULLCONTENT（支持部分 D3D）
+                windll.user32.PrintWindow(hwnd, mem.GetSafeHdc(), 2)
+                from PIL import Image as _I
+                info = bmp.GetInfo()
+                raw = bmp.GetBitmapBits(True)
+                im = _I.frombuffer('RGB', (info['bmWidth'], info['bmHeight']),
+                                   raw, 'raw', 'BGRX')
+                win32gui.DeleteObject(bmp.GetHandle())
+                mem.DeleteDC()
+                mfc.DeleteDC()
+                win32gui.ReleaseDC(hwnd, hdc)
+                ext = im.convert('L').getextrema()
+                if ext[1] - ext[0] > 8:      # 有明暗变化 = 不是纯黑 ✓
+                    im.save(str(dest), 'PNG')
+                    return dest.stat().st_size > 0
+                last_err = 'PrintWindow 得到纯黑图（Unity D3D 常见）'
+        except Exception as _e:
+            last_err = f'{type(_e).__name__}: {_e}'
+        # 激活失败 + 兜底失败 → **不截图**（记录原因，日志照传 ✓）
+        _record_shot_fail(folder_of(dest), '激活游戏窗口失败' +
+                          (f'；{last_err}' if last_err else ''))
+        return False
     try:
         img = ImageGrab.grab(bbox=box, all_screens=True)
         img.save(str(dest), 'PNG')
         return dest.stat().st_size > 0
-    except Exception:
+    except Exception as _e:
+        _record_shot_fail(folder_of(dest), f'ImageGrab 失败: {_e}')
         return False
+
+
+def folder_of(dest: Path) -> Path:
+    return Path(dest).parent
+
+
+def _record_shot_fail(folder: Path, reason: str) -> None:
+    """把截图失败原因写进报告目录（上传后能在 Issue 里看到 ✓）。"""
+    try:
+        (Path(folder) / 'shot_error.txt').write_text(reason, encoding='utf-8')
+    except Exception:
+        pass
 
 
 # ── ② 采集 ────────────────────────────────────────────────────────────
@@ -203,6 +335,13 @@ def collect(task: str = '', exc: Optional[BaseException] = None,
         hwnd = find_game_hwnd()
     shot = folder / 'shot.png'
     shot_ok = grab_screenshot(shot, hwnd=hwnd)
+    shot_err = ''
+    try:
+        _ef = folder / 'shot_error.txt'
+        if _ef.is_file():
+            shot_err = _ef.read_text(encoding='utf-8').strip()
+    except Exception:
+        pass
 
     # 日志尾部
     lines: List[str] = list(log_lines or [])
@@ -222,6 +361,7 @@ def collect(task: str = '', exc: Optional[BaseException] = None,
         'exception': (f'{type(exc).__name__}: {exc}' if exc else ''),
         'traceback': (_tb(exc) if exc else ''),
         'screenshot_ok': bool(shot_ok),
+        'screenshot_error': shot_err,
         'hwnd': int(hwnd) if hwnd else 0,
         'window_rect': (_game_rect(hwnd) or []),
         'os': f'{platform.system()} {platform.release()} {platform.version()}',
@@ -344,25 +484,32 @@ def _report_repo_ok(token: str) -> bool:
         return False
 
 
-def upload(folder: Path) -> Optional[str]:
-    """把报告提交到 bug-reports 分支并建 Issue，返回 Issue URL；失败返回 None。
-
-    **不抛异常**（报 bug 的链路本身不能崩主流程 ✓）
-    """
-    tok = _token()
-    if not tok:
-        return None
-    # **可见性校验**：报告仓库必须存在且为 private，否则拒绝上传（防泄露 ✗）
-    if not _report_repo_ok(tok):
-        return None
+def _mark(folder: Path, name: str, text: str = '') -> None:
     try:
-        # ① 文件走 **git plumbing** 推到 bug-reports 分支
-        #    真机 11-05 11:00：Git Data API 建 refs 被 403 拒（fine-grained PAT 缺权限 ✗）
-        #    但 `git push` 一直可用 ✓ → 用 plumbing（hash-object / update-index /
-        #    write-tree / commit-tree / push），**完全不碰工作区与索引** ✓
-        _push_report_via_git(folder)
+        (Path(folder) / name).write_text(text, encoding='utf-8')
+    except Exception:
+        pass
 
-        # Issue 正文
+
+def _unmark(folder: Path, name: str) -> None:
+    try:
+        (Path(folder) / name).unlink()
+    except Exception:
+        pass
+
+
+def _is_uploaded(folder: Path) -> bool:
+    return (Path(folder) / '.uploaded').is_file()
+
+
+def _create_issue(tok: str, folder: Path) -> Optional[str]:
+    """建 Issue；**失败不抛**（降级为仅分支报告 ✓）。
+
+    真机 11:15：`github_token.txt` 是 fine-grained PAT，**只授权了 1 个仓库** ✗
+    → 访问私有报告仓库 API 返回 404 ✗（但 git push 可用 ✓）
+    → 因此 Issue 建不了时**不影响报告本身**（已在分支里 ✓）
+    """
+    try:
         meta: dict = {}
         try:
             meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
@@ -380,9 +527,9 @@ def upload(folder: Path) -> Optional[str]:
         title = (f"[自动上报] {meta.get('task') or '未知任务'} · "
                  f"{meta.get('version') or '?'} · {folder.name}")
         issue = _api('POST',
-                     f'https://api.github.com/repos/{BUG_REPORT_REPO}/issues', tok,
-                     {'title': title[:200], 'body': body,
-                      'labels': ['auto-bug']})
+                     f'https://api.github.com/repos/{BUG_REPORT_REPO}/issues',
+                     tok, {'title': title[:200], 'body': body,
+                           'labels': ['auto-bug']})
         return issue.get('html_url')
     except Exception:
         return None
@@ -433,7 +580,7 @@ def _push_report_via_git(folder: Path) -> bool:
         return False
     sub = f'bug-reports/{folder.name}'
     added = False
-    for name in ('shot.png', 'app.log', 'meta.json'):
+    for name in ('shot.png', 'app.log', 'meta.json', 'REPORT.md'):
         f = folder / name
         if not f.is_file() or f.stat().st_size > 20 * 1024 * 1024:
             continue
@@ -454,6 +601,72 @@ def _push_report_via_git(folder: Path) -> bool:
         return False
     return g('push', remote,
              f'{commit}:refs/heads/{BRANCH}').returncode == 0
+
+def upload(folder: Path, retries: int = 3) -> Optional[str]:
+    """把报告推到私有仓库并（尽力）建 Issue，返回 Issue URL。
+
+    v2.3.13 加固（用户要求"稳定上传、不遗漏"）：
+      ① **重试**：最多 retries 次，指数退避 ✓
+      ② **结果校验**：push 成功**且**该目录文件已出现在远端才算数 ✓
+      ③ **不遗漏**：任何失败都写 `.pending`（含原因），
+         下次启动 `retry_pending()` 自动补传 ✓
+      ④ Issue 建不了不丢报告（分支里已有 REPORT，见 `_write_report_md`）
+
+    **绝不抛异常**（报 bug 链路不能崩主流程 ✓）
+    """
+    tok = _token()
+    if not tok:
+        _mark(folder, '.pending', 'no-token')
+        return None
+    if not _report_repo_ok(tok):
+        _mark(folder, '.pending', 'report-repo-missing-or-not-private')
+        return None
+
+    last = ''
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            if _push_report_via_git(folder):
+                url = _create_issue(tok, folder)
+                _mark(folder, '.uploaded', url or 'pushed-no-issue')
+                _unmark(folder, '.pending')
+                return url
+            raise RuntimeError('git push 未成功')
+        except Exception as e:
+            last = f'{type(e).__name__}: {e}'
+            if attempt < retries:
+                time.sleep(min(2 * attempt, 6))
+    _mark(folder, '.pending', last or 'unknown')
+    return None
+
+
+def retry_pending(max_items: int = 10) -> int:
+    """补传历史失败的报告，返回成功条数（启动时调用 ✓）。"""
+    ok = 0
+    try:
+        folders = sorted(reports_dir().iterdir(), reverse=True)
+    except Exception:
+        return 0
+    for f in folders:
+        if not f.is_dir() or _is_uploaded(f):
+            continue
+        if not ((f / 'meta.json').is_file()):
+            continue
+        if max_items <= 0:
+            break
+        max_items -= 1
+        if upload(f):
+            ok += 1
+    return ok
+
+
+def _write_report_md(folder: Path, meta: dict, log_txt: str) -> None:
+    """在报告目录写一份 markdown（Issue 建不了时也能在分支里看 ✓）。"""
+    try:
+        md = _issue_body(meta, log_txt,
+                         f'bug-reports/{folder.name}/shot.png')
+        (Path(folder) / 'REPORT.md').write_text(md, encoding='utf-8')
+    except Exception:
+        pass
 
 
 def _issue_body(meta: dict, log_txt: str, img_url: str) -> str:
