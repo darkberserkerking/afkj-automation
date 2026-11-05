@@ -582,6 +582,15 @@ check('14d OCR 命中的「>」走 click_at（图像坐标）',
 t14c, _ = _make_task([PREP_NO_ARROW])
 t14c.bot.template_match = lambda *a, **k: None
 t14c._switch_formation(1)
+# v2.3.29：模板优先 —— 模板命中时不消耗 OCR（单字符 OCR 不稳，别让它挡道）
+t14d, _ = _make_task([PREP_ARROW])          # 帧里有 OCR 的「>」
+t14d.bot.template_match = lambda *a, **k: (1000, 600)
+t14d.bot.i = 0                              # 重置帧游标，便于判断是否读了 OCR
+_img14, _scr14 = t14d._find_arrow()
+check('14g 模板命中 → 返回屏幕坐标、优先于 OCR',
+      _img14 is None and _scr14 == (1000, 600), f'{_img14} / {_scr14}')
+check('14h 模板命中时不读 OCR 帧', t14d.bot.i == 0, f'ocr_calls={t14d.bot.i}')
+
 check('14e 首次找不到「>」不判用完（防抖）',
       t14c._formation_exhausted is False,
       f'exhausted={t14c._formation_exhausted}')

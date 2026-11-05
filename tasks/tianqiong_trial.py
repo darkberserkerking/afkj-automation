@@ -418,6 +418,44 @@ class TianqiongTrialTask(BaseTask):
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
             self._sleep(1.5)
 
+    _ARROW_TPL: str = 'btn_formation_next.png'   # templates/ 内已有（与自动推图同款）
+
+    def _find_arrow(self) -> Tuple[Optional[Tuple[int, int]],
+                                   Optional[Tuple[int, int]]]:
+        """找阵容切换 `>` 按钮，返回 `(图像坐标, 屏幕坐标)`（二者互斥）。
+
+        v2.3.29：**模板优先**。单字符 `>` 的 OCR 很不稳（真机 20:39 就是没
+        读到才走兜底），而 `templates/btn_formation_next.png` 是专用模板（与
+        `formation.py:156` 同一张），可靠得多。
+
+        坐标语义必须区分（混用会双重偏移，真机曾点到工具自己的按钮）：
+          - `template_match` → **屏幕绝对坐标**（消费方 `_click_abs`）
+          - OCR → **图像坐标**（消费方 `click_at`）
+
+        Returns:
+            (img_pos, screen_pos)：命中模板时 img_pos=None；命中 OCR 时
+            screen_pos=None；都没找到时二者皆为 None。
+        """
+        try:
+            hit = self.bot.template_match(self._ARROW_TPL,
+                                          threshold=0.6, silent=True)
+            if hit:
+                return None, (int(hit[0]), int(hit[1]))
+        except Exception as exc:                       # noqa: BLE001
+            self.log(f"[调试] 切换阵容模板异常已忽略: {exc}")
+        # 模板没命中 → OCR 兜底（图像坐标）
+        for it in self.bot._ocr_screen():
+            if len(it) < 4 or it[3] < 0.3:
+                continue
+            if str(it[2]).strip() in ('>', '＞', '›'):
+                return (int(it[1]), int(it[0])), None
+        return None, None
+
+    def _has_arrow(self) -> bool:
+        """当前是否还有 `>` 切换按钮（模板优先，OCR 兜底）。"""
+        img, scr = self._find_arrow()
+        return img is not None or scr is not None
+
     def _switch_formation(self, times: int) -> bool:
         """在「通关阵容」面板内点 `>` 切换 N 套推荐阵容。
 
@@ -432,23 +470,7 @@ class TianqiongTrialTask(BaseTask):
         Returns:
             bool: True = 还有阵容可切；False = 已到最后一套 / 本次找不到按钮
         """
-        arrow_img: Optional[Tuple[int, int]] = None      # OCR：图像坐标
-        arrow_screen: Optional[Tuple[int, int]] = None   # 模板：屏幕坐标
-        for it in self.bot._ocr_screen():
-            if len(it) < 4 or it[3] < 0.3:
-                continue
-            if str(it[2]).strip() in ('>', '＞', '›'):
-                arrow_img = (int(it[1]), int(it[0]))
-                break
-        if not arrow_img:
-            # OCR 漏读 → 模板兜底（与自动推图同一张模板，返回屏幕坐标）
-            try:
-                hit = self.bot.template_match(
-                    'btn_formation_next.png', threshold=0.6, silent=True)
-                if hit:
-                    arrow_screen = (int(hit[0]), int(hit[1]))
-            except Exception as exc:                   # noqa: BLE001
-                self.log(f"[调试] 切换阵容模板异常已忽略: {exc}")
+        arrow_img, arrow_screen = self._find_arrow()
 
         if arrow_img is None and arrow_screen is None:
             self._no_arrow = getattr(self, '_no_arrow', 0) + 1
@@ -477,16 +499,12 @@ class TianqiongTrialTask(BaseTask):
             if i < times - 1:
                 self._sleep(0.2)
 
-        # 验证 `>` 是否还在：**连续 2 次读不到**才算消失
+        # 验证 `>` 是否还在：**连续 2 次都读不到**才算消失
         # （单帧抖动/动画遮挡会误判，误判即过早换塔）
         still = False
         for _ in range(2):
-            still = any(
-                len(it) >= 4 and it[3] >= 0.3
-                and str(it[2]).strip() in ('>', '＞', '›')
-                for it in self.bot._ocr_screen()
-            )
-            if still:
+            if self._has_arrow():
+                still = True
                 break
             self._sleep(1.0)
         if not still:
