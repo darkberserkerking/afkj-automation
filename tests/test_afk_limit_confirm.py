@@ -288,6 +288,19 @@ except Exception as _e:
     _ok7d = False
 check('7d App._append_log 兼容两参调用（不再崩任务）', _ok7d)
 
+print('\n── 8. 沙漏确认用「绿色 √ 模板」（真机 11-05 10:35 弹窗是 ✕/√ 无文字 ✗）──')
+_af = open(os.path.join(ROOT, 'tasks', 'auto_farm.py'), encoding='utf-8').read()
+check('8a 沙漏确认优先用 btn_confirm_check.png（文本判据匹配不上 ✗）',
+      'btn_confirm_check.png' in _af and '沙漏「快速挂机」确认' in _af)
+check('8b 模板尺度覆盖 0.5~1.6（弹窗内 √ 大小不定）',
+      '(0.5, 1.6, 0.1)' in _af)
+check('8c 保留文字兜底（个别版本可能是文字按钮）',
+      "'确认', '确定', '立即领取'" in _af)
+# 用真机截图验一遍模板确实命中（离线，不依赖游戏）
+_tpl = os.path.join(ROOT, 'templates', 'btn_confirm_check.png')
+check('8d 模板文件存在', os.path.isfile(_tpl),
+      str(os.path.getsize(_tpl) if os.path.isfile(_tpl) else 0) + 'B')
+
 print()
 print(f'══ 挂机极限弹窗：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:

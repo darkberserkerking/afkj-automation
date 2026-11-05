@@ -400,18 +400,40 @@ class AutoFarmTask(BaseTask):
                 self._sleep(_HG_SETTLE_WAIT)
                 if self.check_stop():
                     return
-                # v2.3.8（用户 11-05 10:21 实测）：**点沙漏后会弹确认框**，
-                # 不点它读数永远不变（日志：第 1 次点击未被结算 ✗）
-                # → 每轮先找「确认/确定」点掉，再读 xN
+                # v2.3.9（用户 11-05 10:35 截图）：点沙漏后弹的确认框是
+                #   「使用一次免费快速挂机可立即获得120分钟的挂机收益」
+                #   底部 **✕ / √ 两个圆形按钮，没有任何文字** ✗
+                # 所以：① 先用**弹窗正文**确认真的是这个弹窗（防误点 ✓）
+                #       ② 再用绿色 √ 模板点击（btn_confirm_check.png，与挂机极限同款）
                 _cur = self.bot._ocr_screen(no_cache=True)
-                for _cw in ('确认', '确定'):
-                    _cp = self.bot.find_text(_cur, _cw, min_conf=0.7)
-                    if _cp:
-                        self.log(f"[点击] 沙漏领取「{_cw}」 | "
-                                 f"({_cp[0]},{_cp[1]})")
-                        self.bot.click_at(_cp[0], _cp[1], '挂机_沙漏确认')
+                _dlg_txt = [str(it[2]) for it in _cur
+                            if len(it) >= 4 and it[3] >= 0.5]
+                _is_hg_dlg = any(('免费快速挂机' in t or '本日剩余次数' in t)
+                                 for t in _dlg_txt)
+                if _is_hg_dlg:
+                    _hit = None
+                    try:
+                        _hit = self.bot.template_match(
+                            'btn_confirm_check.png', threshold=0.75,
+                            scale_range=(0.5, 1.6, 0.1), silent=True)
+                    except Exception as _e:
+                        self.log(f"[调试] 沙漏确认模板匹配异常: {_e}")
+                    if _hit:
+                        self.log(f"[点击] 沙漏「快速挂机」确认 ✓ | "
+                                 f"({_hit[0]},{_hit[1]})")
+                        self.bot._click_abs(_hit[0], _hit[1])
                         self._sleep(1.0)
-                        break
+                    else:
+                        # 文本兜底（个别版本可能做成文字按钮）
+                        for _cw in ('确认', '确定', '立即领取'):
+                            _cp = self.bot.find_text(_cur, _cw, min_conf=0.7)
+                            if _cp:
+                                self.log(f"[点击] 沙漏领取「{_cw}」 | "
+                                         f"({_cp[0]},{_cp[1]})")
+                                self.bot.click_at(_cp[0], _cp[1],
+                                                  '挂机_沙漏确认')
+                                self._sleep(1.0)
+                                break
                 # 单次截图同时取两类候选（省一次 OCR）
                 _xn, _prices = _hg_candidates()
                 # ① **钻石定价出现** = 上一次点击已是最后一次免费领取
