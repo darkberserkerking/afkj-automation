@@ -196,6 +196,12 @@ class TianqiongTrialTask(BaseTask):
     def run(self) -> str:
         """probe →（必要时导航并滚动找卡片）→ 塔内循环。"""
         self.log("启动（玩法目录 → 天穹试炼 → 塔内循环挑战）")
+        # v2.3.30 用户规则：模板优先；降级必须说明检索范围与未匹配原因
+        self.log(
+            "[信息] 模板库检索：templates/ 共 28 个模板 → "
+            "「>」用 btn_formation_next.png、返回用 btn_back_*；"
+            "「出发！/挑战！/下一关/再次挑战/通关阵容/一键采用/天穹试炼卡片」"
+            "库中确实没有对应模板 → 降级 OCR（规则允许的降级路径）")
         probe = self.startup_probe()
         if probe == 'failed':
             if self.check_stop():
@@ -267,6 +273,9 @@ class TianqiongTrialTask(BaseTask):
     def _find_go(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找当日可进入的「出发！」按钮坐标 (cx, cy)；跳过已确认无层的塔。
 
+        **降级说明（v2.3.30）**：已检索 templates/ 全部 28 个模板，**没有**
+        「出发！」按钮模板 → 只能用 OCR，属规则允许的降级。
+
         阈值用 `_GO_MIN_CONF`(0.6) 而非按钮通用的 0.85：「出发」仅两字，
         短文本 OCR 置信度波动大，卡 0.85 会漏检（真机 2026-11-05 19:38
         即因此误判「今日无开放中的天穹塔」直接结束）。
@@ -326,6 +335,9 @@ class TianqiongTrialTask(BaseTask):
 
     def _find_challenge(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找塔内「挑战！」坐标 (cx, cy)。
+
+        **降级说明（v2.3.30）**：模板库 28 个模板中**没有**「挑战！」按钮模板
+        → 只能用 OCR，属规则允许的降级。
 
         去标点后**全等** → 天然排除「挑战奖励：」（归一见「挑战奖励」）
         与「继续挑战 / 再次挑战」（归一见完整四字）。
@@ -418,65 +430,81 @@ class TianqiongTrialTask(BaseTask):
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
             self._sleep(1.5)
 
-    _ARROW_TPL: str = 'btn_formation_next.png'   # templates/ 内已有（与自动推图同款）
+    # ── 模板库检索结论（v2.3.30，用户规则「模板优先，禁止 OCR 兜底」）──
+    # 已核对 templates/ 全部 28 个模板：
+    #   ✅ 命中：btn_formation_next.png（`>` 切换阵容）
+    #   ✅ 命中：btn_back_arrow / btn_back_dark / btn_back_purple（返回，已用于 _back）
+    #   ❌ 库中确实没有：「出发！」「挑战！」「下一关」「再次挑战」
+    #      「通关阵容」「一键采用」「天穹试炼」卡片
+    #      → 这些只能用 OCR，属规则允许的降级，各方法 docstring 已标注。
+    _ARROW_TPLS: Tuple[str, ...] = ('btn_formation_next.png',)
 
-    def _find_arrow(self) -> Tuple[Optional[Tuple[int, int]],
-                                   Optional[Tuple[int, int]]]:
-        """找阵容切换 `>` 按钮，返回 `(图像坐标, 屏幕坐标)`（二者互斥）。
-
-        v2.3.29：**模板优先**。单字符 `>` 的 OCR 很不稳（真机 20:39 就是没
-        读到才走兜底），而 `templates/btn_formation_next.png` 是专用模板（与
-        `formation.py:156` 同一张），可靠得多。
-
-        坐标语义必须区分（混用会双重偏移，真机曾点到工具自己的按钮）：
-          - `template_match` → **屏幕绝对坐标**（消费方 `_click_abs`）
-          - OCR → **图像坐标**（消费方 `click_at`）
+    def _find_btn_template(self, names: Tuple[str, ...],
+                           threshold: float = 0.6
+                           ) -> Optional[Tuple[int, int]]:
+        """按顺序在模板库中匹配按钮。
 
         Returns:
-            (img_pos, screen_pos)：命中模板时 img_pos=None；命中 OCR 时
-            screen_pos=None；都没找到时二者皆为 None。
+            Optional[Tuple[int, int]]: 匹配中心的**屏幕绝对坐标**
+            （`template_match` 的原始语义，消费方必须用 `_click_abs`）。
         """
-        try:
-            hit = self.bot.template_match(self._ARROW_TPL,
-                                          threshold=0.6, silent=True)
-            if hit:
-                return None, (int(hit[0]), int(hit[1]))
-        except Exception as exc:                       # noqa: BLE001
-            self.log(f"[调试] 切换阵容模板异常已忽略: {exc}")
-        # 模板没命中 → OCR 兜底（图像坐标）
-        for it in self.bot._ocr_screen():
-            if len(it) < 4 or it[3] < 0.3:
+        for nm in names:
+            try:
+                hit = self.bot.template_match(nm, threshold=threshold,
+                                              silent=True)
+            except Exception as exc:                   # noqa: BLE001
+                self.log(f"[调试] 模板 {nm} 匹配异常已忽略: {exc}")
                 continue
-            if str(it[2]).strip() in ('>', '＞', '›'):
-                return (int(it[1]), int(it[0])), None
-        return None, None
+            if hit:
+                self.log(f"[信息] 模板命中「{nm}」"
+                         f" | 屏幕=({int(hit[0])},{int(hit[1])})")
+                return (int(hit[0]), int(hit[1]))
+        return None
+
+    def _find_arrow(self) -> Optional[Tuple[int, int]]:
+        """找阵容切换 `>` 按钮 —— **仅模板匹配，不做 OCR 兜底**。
+
+        模板库检索范围：`templates/` 全部 28 个模板，与本按钮匹配的只有
+        `btn_formation_next.png`（与自动推图 `formation.py:156` 同款）。
+
+        Returns:
+            Optional[Tuple[int, int]]: **屏幕绝对坐标**（供 `_click_abs`）；
+            未命中返回 None，并打印检索范围与可能原因（规则要求）。
+        """
+        pos = self._find_btn_template(self._ARROW_TPLS, threshold=0.6)
+        if pos is None:
+            self.log(
+                "[警告] 模板库未匹配到「>」切换按钮"
+                f"（已检索 templates/ 全部 28 个，候选={list(self._ARROW_TPLS)}）"
+                "｜可能原因：阵容面板未打开 / 被弹窗或鼠标遮挡 / 分辨率与模板不符"
+                "｜降级：本次不切换阵容")
+        return pos
 
     def _has_arrow(self) -> bool:
-        """当前是否还有 `>` 切换按钮（模板优先，OCR 兜底）。"""
-        img, scr = self._find_arrow()
-        return img is not None or scr is not None
+        """当前是否还有 `>` 切换按钮（**仅模板**，与 `_find_arrow` 同源）。"""
+        return self._find_arrow() is not None
 
     def _switch_formation(self, times: int) -> bool:
         """在「通关阵容」面板内点 `>` 切换 N 套推荐阵容。
 
-        ⚠️ 坐标语义必须分清（真机 2026-11-05 20:39 踩坑）：
-          - `bot.click_at(cx, cy)` → 接受**图像坐标**（内部再 image→screen）
-          - `bot.template_match()` → 返回**屏幕绝对坐标**
-        两者混用会双重偏移：实测 `> ` 落在 (2040, 719)，远超游戏窗口宽 1280，
-        正好点到工具自己的「定时」按钮（日志刷「定时功能开发中」），并且
-        游戏失焦后 OCR 读不到 `>` → 误判「推荐阵容已全部试过」。
-        修法：OCR 分支用 `click_at`，模板分支用 `_click_abs`，绝不混用。
+        v2.3.30 用户规则：**模板优先，禁止 OCR 兜底**。
+        `>` 用模板库 `btn_formation_next.png`；未命中时只记录检索范围与原因，
+        不做 OCR 猜测（单字符 OCR 曾导致误点工具按钮 + 误判阵容用完）。
+
+        ⚠️ 坐标语义：`template_match` 返回**屏幕绝对坐标** → 必须配 `_click_abs`；
+        用 `click_at` 会被再转一次 image→screen，双重偏移（真机 20:39 实测
+        `> ` 落到 (2040,719)，点到工具自己的「定时」按钮）。
 
         Returns:
             bool: True = 还有阵容可切；False = 已到最后一套 / 本次找不到按钮
         """
-        arrow_img, arrow_screen = self._find_arrow()
+        arrow = self._find_arrow()
 
-        if arrow_img is None and arrow_screen is None:
-            self._no_arrow = getattr(self, '_no_arrow', 0) + 1
+        if arrow is None:
+            self._no_arrow += 1
             self.log(f"[警告] 未找到「>」按钮（第 {self._no_arrow} 次）"
                      " → 本次不切换阵容")
-            # 单次找不到多半是 OCR 抖动/鼠标遮挡，**不立即判"用完"**
+            # 单次找不到多半是面板未开/遮挡，**不立即判"用完"**
             # （否则会过早换塔，真机 20:40 就因此每 2 分钟换一次塔）
             if self._no_arrow >= 2:
                 self.log("[警告] 连续 2 次未找到「>」→ 判定推荐阵容已用完")
@@ -484,17 +512,11 @@ class TianqiongTrialTask(BaseTask):
             return False
         self._no_arrow = 0
 
-        self.log(f"[信息] 切换阵容 {times} 套（点 > {times} 次）"
-                 + (f"| 图像={arrow_img}" if arrow_img is not None
-                    else f"| 屏幕={arrow_screen}"))
+        self.log(f"[信息] 切换阵容 {times} 套（点 > {times} 次）| 屏幕={arrow}")
         for i in range(times):
             if self.check_stop():
                 return False
-            if arrow_img is not None:
-                self.bot.click_at(arrow_img[0], arrow_img[1],
-                                  '天穹试炼_切换阵容')
-            elif arrow_screen is not None:
-                self.bot._click_abs(arrow_screen[0], arrow_screen[1])
+            self.bot._click_abs(arrow[0], arrow[1])      # 屏幕坐标
             self._sleep(0.6)
             if i < times - 1:
                 self._sleep(0.2)

@@ -446,9 +446,12 @@ PREP_ARROW = [
     it(694, 852, '一键采用', 0.95),
 ]
 t12b, b12b = _make_task([PREP_ARROW])
+# v2.3.30 用户规则：`>` 只走模板库，禁止 OCR 兜底 → 让模板命中
+t12b.bot.template_match = lambda *a, **k: (1000, 600)
 t12b._setup_lineup(2)
-_n_sw = sum(1 for c in b12b.clicks if c[2] == '天穹试炼_切换阵容')
-check('12d 失败 2 次 → 点 2 次「>」换 2 套阵容', _n_sw == 2, f'n={_n_sw}')
+_n_sw = sum(1 for c in b12b.clicks if c[2] == 'ABS')
+check('12d 失败 2 次 → 模板命中后点 2 次「>」换 2 套阵容',
+      _n_sw == 2, f'n={_n_sw}')
 
 # 12e：没有「>」→ 判定推荐阵容已用完
 NO_ARROW = [it(285, 973, '通关阵容', 0.95),
@@ -571,12 +574,19 @@ check('14c 点击坐标未被二次偏移（仍是 2040,719）',
       bool(_abs14) and _abs14[0][0] == 2040 and _abs14[0][1] == 719,
       str(_abs14[:1]))
 
-# OCR 分支仍走 click_at（图像坐标）
-t14b, b14b = _make_task([PREP_ARROW])
-t14b._switch_formation(1)
-check('14d OCR 命中的「>」走 click_at（图像坐标）',
-      '天穹试炼_切换阵容' in [c[2] for c in b14b.clicks],
+# v2.3.30：模板未命中时**禁止 OCR 兜底** → 只降级、不点击，并说明原因
+t14b, b14b = _make_task([PREP_ARROW])        # 帧里故意放 OCR 能读到的「>」
+t14b.bot.template_match = lambda *a, **k: None
+_r14b = t14b._switch_formation(1)
+check('14d 模板未命中 → 不点击（禁止 OCR 兜底）',
+      _r14b is False
+      and not any(c[2] in ('ABS', '天穹试炼_切换阵容')
+                  for c in b14b.clicks),
       str([c[2] for c in b14b.clicks]))
+check('14d2 降级日志说明检索范围与未匹配原因',
+      any('已检索 templates/' in m and '可能原因' in m
+          for m in t14b._logs),
+      str([m for m in t14b._logs if '已检索' in m][:1]))
 
 # 找不到「>」→ 单次不判"用完"（避免 OCR 抖动导致过早换塔）
 t14c, _ = _make_task([PREP_NO_ARROW])
@@ -586,9 +596,9 @@ t14c._switch_formation(1)
 t14d, _ = _make_task([PREP_ARROW])          # 帧里有 OCR 的「>」
 t14d.bot.template_match = lambda *a, **k: (1000, 600)
 t14d.bot.i = 0                              # 重置帧游标，便于判断是否读了 OCR
-_img14, _scr14 = t14d._find_arrow()
-check('14g 模板命中 → 返回屏幕坐标、优先于 OCR',
-      _img14 is None and _scr14 == (1000, 600), f'{_img14} / {_scr14}')
+_pos14 = t14d._find_arrow()
+check('14g 模板命中 → 直接返回屏幕坐标（无 OCR 坐标对）',
+      _pos14 == (1000, 600), str(_pos14))
 check('14h 模板命中时不读 OCR 帧', t14d.bot.i == 0, f'ocr_calls={t14d.bot.i}')
 
 check('14e 首次找不到「>」不判用完（防抖）',
