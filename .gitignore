@@ -45,3 +45,6 @@ build_launcher/
 # ── 临时测试脚本 ──
 _test_updater_e2e.py
 dist_swap_test/
+
+# ── Bug 上报产物（本地保留，走 Issue 上传）──
+logs/

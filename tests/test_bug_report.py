@@ -1,0 +1,119 @@
+"""Bug 上报模块验证（v2.3.10）。
+
+覆盖：
+  ① 采集：目录 / shot.png / app.log / meta.json 齐全，meta 关键字段正确
+  ② Issue 正文：含版本/任务/日志尾部/截图直链
+  ③ 无 Token 时 upload() 返回 None 且**不抛异常**（本地报告仍是完整的）
+  ④ 上传失败（假 API）也不抛异常
+
+运行：D:/anaconda3/envs/afk_gpu/python.exe tests/test_bug_report.py
+"""
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from afk_bot import bug_report as BR  # noqa: E402
+
+_PASS, _FAIL = [], []
+
+
+def check(name, cond, detail=''):
+    (_PASS if cond else _FAIL).append(name)
+    print(f'[{"PASS" if cond else "FAIL"}] {name}'
+          + (f'  {detail}' if detail else ''))
+
+
+print('═' * 64)
+print('Bug 上报模块验证（v2.3.10）')
+print('═' * 64)
+
+# ── ① 采集 ──
+print('\n── ① 采集 ──')
+_logs = [f'[信息] 第 {i} 行测试日志' for i in range(1000)]
+folder = BR.collect(task='unit-test', log_lines=_logs,
+                    hwnd=None, extra={'note': 'dry-run'})
+check('1a 报告目录已创建', folder.is_dir(), str(folder))
+check('1b meta.json 存在', (folder / 'meta.json').is_file())
+check('1c app.log 存在', (folder / 'app.log').is_file())
+check('1d 截图存在且非空', (folder / 'shot.png').is_file()
+      and (folder / 'shot.png').stat().st_size > 1000,
+      f"{(folder / 'shot.png').stat().st_size if (folder / 'shot.png').is_file() else 0}B")
+
+import json  # noqa: E402
+meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
+check('1e meta.version 正确', meta.get('version', '').startswith('v2.'),
+      meta.get('version'))
+check('1f meta.task 正确', meta.get('task') == 'unit-test', meta.get('task'))
+check('1g meta 含系统/打包标记',
+      bool(meta.get('os')) and 'frozen' in meta, str(meta.get('os'))[:40])
+check('1h 日志按 LOG_TAIL_LINES 截断',
+      len((folder / 'app.log').read_text(encoding='utf-8').splitlines())
+      <= BR.LOG_TAIL_LINES,
+      str(len((folder / 'app.log').read_text(encoding='utf-8').splitlines())))
+
+# 异常采集
+try:
+    raise ValueError('模拟任务异常')
+except Exception as _e:
+    f2 = BR.collect(task='unit-exc', exc=_e)
+_m2 = json.loads((f2 / 'meta.json').read_text(encoding='utf-8'))
+check('1i 异常信息被记录（类型+消息）',
+      'ValueError' in _m2.get('exception', '')
+      and '模拟任务异常' in _m2.get('exception', ''),
+      _m2.get('exception', ''))
+check('1j 异常堆栈被记录', 'Traceback' in _m2.get('traceback', ''))
+
+# ── ② Issue 正文 ──
+print('\n── ② Issue 正文 ──')
+body = BR._issue_body(meta, '日志内容XYZ', 'https://example.com/a.png')
+check('2a 含版本/任务表', 'v2.' in body and 'unit-test' in body)
+check('2b 含日志尾部', '日志内容XYZ' in body)
+check('2c 含截图直链 markdown', '![screenshot](https://example.com/a.png)' in body)
+check('2d 含系统信息', 'Windows' in body or 'Linux' in body)
+
+# ── ③ 无 Token → None 且不抛 ──
+print('\n── ③ 无 Token 时不抛异常 ──')
+_old_tok = BR._token
+BR._token = lambda: None
+try:
+    got = BR.upload(folder)
+    check('3a 无 Token → 返回 None（不抛）', got is None, repr(got))
+    _ok = True
+except Exception as e:
+    _ok = False
+    check('3a 无 Token → 返回 None（不抛）', False, str(e))
+check('3b 无 Token 时本地报告仍完整',
+      (folder / 'shot.png').is_file() and (folder / 'meta.json').is_file())
+
+# ── ④ 上传失败也不抛 ──
+print('\n── ④ 上传失败不抛异常 ──')
+BR._token = lambda: 'fake-token'
+
+
+def _boom(*a, **k):
+    raise RuntimeError('模拟网络失败')
+
+
+_old_api = BR._api
+BR._api = _boom
+try:
+    got2 = BR.upload(folder)
+    check('4a 上传异常 → 返回 None（不抛）', got2 is None, repr(got2))
+except Exception as e:
+    check('4a 上传异常 → 返回 None（不抛）', False, str(e))
+BR._api = _old_api
+BR._token = _old_tok
+
+# ── ⑤ report() 一步到位 ──
+print('\n── ⑤ report() 一步到位 ──')
+f3, u3 = BR.report(task='unit-report', do_upload=False)
+check('5a report 返回目录', f3.is_dir(), str(f3))
+check('5b do_upload=False → 不上传', u3 is None)
+
+print()
+print(f'══ Bug 上报：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
+if _FAIL:
+    print('失败项：', _FAIL)
+sys.exit(0 if not _FAIL else 1)

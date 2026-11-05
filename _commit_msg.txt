@@ -1,0 +1,24 @@
+feat(bug-report): 出现 bug 时自动截图+日志并上传 GitHub Issue
+
+用户需求：当出现 bug 时截图游戏界面 + 记录日志并上传 GitHub。
+
+新增 afk_bot/bug_report.py：
+- collect()：采集现场 → logs/bug_reports/<时间戳>/
+  · shot.png  游戏窗口截图（先 SetForegroundWindow 激活，避免截到工具窗口；
+              ImageGrab 按客户区 rect 裁剪，Unity 的 PrintWindow 全黑不能用）
+  · app.log   日志尾部（默认 800 行，GUI 的 _recent_logs 优先）
+  · meta.json 版本/任务/异常栈/窗口 rect/系统/Python/是否打包
+  本地永远先落盘（上传失败也不丢证据）
+- upload()：图片走 Git Data API 提交到 bug-reports 分支（不污染 main）
+  + 建 Issue（正文含 meta 表 + 异常 + 截图直链 + 日志尾部），返回 Issue URL
+  · 用 api.github.com 而非 git push（用户网络下 git 端点常 502）
+  · 无 Token / 网络失败 → 返回 None，绝不抛异常（报 bug 链路不能崩主流程）
+- report()：一步到位
+
+GUI（afk_gui.py）：
+- 任务结束有 failed → 自动采集上报（后台线程，日志提示"检测到任务失败 → 自动收集"）
+- 设置抽屉新增「📸 报 bug（截图+日志）」手动入口
+
+测试：新增 tests/test_bug_report.py 19/19 ✓（采集齐全 / Issue 正文 /
+无 Token 不抛 / 上传异常不抛 / report 一步到位），已纳入 L3（real=True）
+全量 L3 51/51 ✓

@@ -1639,6 +1639,15 @@ class App(ctk.CTk):
         )
         self._upd_status_lbl.pack(**pad)
 
+        # ── ⑦ 报 Bug（v2.3.10）：手动采集现场并上传 ──
+        self._bug_report_btn = ctk.CTkButton(
+            drawer_content, text='📸 报 bug（截图+日志）', height=30,
+            font=self._f_small, fg_color=BG_BTN, hover_color=BG_INPUT,
+            border_color=BG_BTN, command=lambda: self._report_bug('manual'),
+        )
+        self._bug_report_btn.pack(fill='x', padx=SPACE_MD,
+                                  pady=(SPACE_SM, SPACE_MD))
+
     # ── 自动更新 ────────────────────────────────────────────
 
     def _show_upd_progress(self) -> None:
@@ -1930,6 +1939,47 @@ class App(ctk.CTk):
                     sys.stderr.write(f'[警告] 日志写入失败 | {e}\n')
                 except Exception:
                     pass
+    def _report_bug(self, task: str = '', exc=None) -> None:
+        """采集 Bug 现场（游戏截图 + 日志尾部 + 环境）并尝试上传 GitHub。
+
+        v2.3.10：任务失败 / 手动点「📸 报 bug」时调用。
+        **全程后台线程**，任何失败都不影响主流程；本地永远先落盘 ✓
+        """
+        def _work():
+            try:
+                from afk_bot import bug_report as BR
+            except Exception as _e:
+                self._post_ui(lambda: self._append_log(
+                    f'[警告] Bug 上报模块不可用: {_e}'))
+                return
+            _hwnd = 0
+            try:
+                _hwnd = int(getattr(getattr(self._bot, '_core', None),
+                                    '_hwnd', 0) or 0)
+            except Exception:
+                _hwnd = 0
+            try:
+                _lines = list(_recent_logs) if _recent_logs else []
+            except Exception:
+                _lines = []
+            try:
+                folder, url = BR.report(task=task or 'manual', exc=exc,
+                                        log_lines=_lines, hwnd=_hwnd)
+            except Exception as _e:
+                self._post_ui(lambda: self._append_log(
+                    f'[警告] Bug 上报异常: {_e}'))
+                return
+            self._post_ui(lambda: self._append_log(
+                f'[信息] 🐞 现场已保存：{folder}'))
+            if url:
+                self._post_ui(lambda: self._append_log(
+                    f'[成功] 🐞 已上传 Issue：{url}'))
+            else:
+                self._post_ui(lambda: self._append_log(
+                    '[信息] 🐞 未上传（无 Token 或网络失败），本地报告已保留'))
+        threading.Thread(target=_work, daemon=True,
+                         name='bug-report').start()
+
     def _post_ui(self, fn):
         """把 UI 操作投递到**主线程**执行（后台线程必须走这里）。
 
@@ -2176,6 +2226,16 @@ class App(ctk.CTk):
 
         results = sched.run_all()   # 阻塞直到全部结束/停止
         self._append_log(f'[信息] 任务汇总: {zh_results(results)}')
+        # v2.3.10：有任务失败 → **自动采集现场并上报**（截图 + 日志 → GitHub Issue）
+        try:
+            _failed = [str(k) for k, v in (results or {}).items()
+                       if str(v) in ('failed', '失败')]
+        except Exception:
+            _failed = []
+        if _failed:
+            self._append_log(f'[信息] 🐞 检测到任务失败：{", ".join(_failed)}'
+                             f' → 自动收集 Bug 报告')
+            self._report_bug(task=','.join(_failed))
         self._running = False
         self._post_ui(self._reset_buttons)
 

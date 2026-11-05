@@ -42,6 +42,7 @@ SUITES = {
     'tests/test_goddess_trial_dryrun.py': ({2, 3}, False),
     'tests/test_guild_battle_dryrun.py': ({2, 3}, False),
     'tests/test_guild_result_matrix.py': ({1, 2, 3}, False),
+    'tests/test_bug_report.py': ({1, 2, 3}, True),
     'tests/test_afk_limit_confirm.py': ({1, 2, 3}, False),
     'tests/test_updater_verify.py': ({1, 2, 3}, False),
     'tests/test_challenge_btn_verify.py': ({2, 3}, False),
