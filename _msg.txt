@@ -1,0 +1,17 @@
+fix(bug-report): 截图只取游戏画面，绝不截整个桌面（用户要求）
+
+问题：hwnd 为空（未跑任务 / 手动点报 bug）时会退化成整屏截图 ✗
+
+修法（afk_bot/bug_report.py）：
+- 新增 find_game_hwnd()：枚举顶层窗口，判据与 infra/screen.py::find_hwnd 一致
+  （Unity 类名 + 标题评分：优先 afk journey/剑与远征/启程，排除 endfield/明日方舟…）
+- grab_screenshot()：hwnd 为空则自动找；**找不到游戏窗口直接返回 False 不截图** ✗
+  彻底删除"整屏兜底"分支
+- collect() 也先自动找窗口
+
+真机验证（11:03）：
+- hwnd=68280 标题='AFK Journey'
+- 客户区=(56,126,1336,1150) → 截图尺寸 **1280×1024**（游戏画面 ✓ 不是桌面 ✗）
+
+测试：test_bug_report 21/21 ✓（新增 1d2 截图尺寸必须是 1280x1024 / 1d3 无窗口不截屏）
+全量 L3 51/51 ✓

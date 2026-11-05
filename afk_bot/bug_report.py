@@ -57,6 +57,54 @@ def reports_dir() -> Path:
 
 # ── ① 截图 ────────────────────────────────────────────────────────────
 
+# 与 afk_bot/infra/screen.py 的 find_hwnd 保持同一套判据（Unity 类名 + 标题评分）
+_PREFERRED_TITLE_KWS = ('afk journey', '剑与远征', '启程')
+_EXCLUDED_TITLE_KWS = ('endfield', '明日方舟', '终末地', 'arknights')
+
+
+def find_game_hwnd() -> Optional[int]:
+    """枚举顶层窗口找**游戏**窗口（Unity 类名 + 标题评分，与 screen.py 同判据）。"""
+    try:
+        import win32gui
+    except Exception:
+        return None
+    cands = []
+
+    def _cb(h, acc):
+        try:
+            if 'Unity' in win32gui.GetClassName(h):
+                acc.append((h, win32gui.GetWindowText(h)))
+        except Exception:
+            pass
+
+    try:
+        win32gui.EnumWindows(_cb, cands)
+    except Exception:
+        return None
+    if not cands:
+        return None
+    pool = [(h, t) for h, t in cands
+            if not any(k in t.lower() for k in _EXCLUDED_TITLE_KWS)] or cands
+
+    def _score(item):
+        h, t = item
+        tl = t.lower()
+        pref = any(k in tl for k in _PREFERRED_TITLE_KWS)
+        try:
+            l, tp, r, b = win32gui.GetWindowRect(h)
+            sized = 0 if (r - l) > 0 and (b - tp) > 0 else 1
+        except Exception:
+            sized = 1
+        try:
+            vis = 0 if win32gui.IsWindowVisible(h) else 1
+        except Exception:
+            vis = 1
+        return (0 if pref else 1, vis, sized)
+
+    pool.sort(key=_score)
+    return pool[0][0]
+
+
 def _game_rect(hwnd: Optional[int]) -> Optional[Tuple[int, int, int, int]]:
     """取游戏客户区在屏幕上的绝对矩形 (l, t, r, b)。
 
@@ -76,42 +124,38 @@ def _game_rect(hwnd: Optional[int]) -> Optional[Tuple[int, int, int, int]]:
     return None
 
 
-def grab_screenshot(dest: Path, hwnd: Optional[int] = None,
-                    whole_screen: bool = False) -> bool:
-    """截游戏窗口（失败则整屏）。成功返回 True。
+def grab_screenshot(dest: Path, hwnd: Optional[int] = None) -> bool:
+    """**只截游戏窗口**（v2.3.11 用户要求：不要截整个桌面 ✗）。成功返回 True。
 
-    ⚠️ Unity 窗口用 PrintWindow 会全黑 → 这里用 ImageGrab 截**屏幕区域**，
-    因此调用前游戏窗口必须在前台（报 bug 时通常如此）。
+    - hwnd 为空 → 自动枚举找游戏窗口（Unity 类名 + 标题评分）
+    - **找不到游戏窗口 → 返回 False，不截图**（绝不退化为整屏 ✗）
+    - Unity 的 PrintWindow 全黑 → 用 ImageGrab 截屏幕对应区域，
+      所以截之前先把游戏窗口切前台 ✓
     """
     try:
         from PIL import ImageGrab
     except Exception:
         return False
-    box = None if whole_screen else _game_rect(hwnd)
-    if box is not None:
-        # ImageGrab 的 bbox 是 (left, top, right, bottom)
+    if not hwnd:
+        hwnd = find_game_hwnd()
+    box = _game_rect(hwnd) if hwnd else None
+    if not box:
+        return False          # 没有游戏窗口 → 不截（绝不整屏）✗
+
+    try:
+        import win32gui
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, 9)      # SW_RESTORE
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.25)
+    except Exception:
         pass
-    # 先把游戏窗口切到前台，否则 ImageGrab 截到的是挡在它前面的工具窗口 ✗
-    if box is not None and hwnd:
-        try:
-            import win32gui
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, 9)      # SW_RESTORE
-            win32gui.SetForegroundWindow(hwnd)
-            time.sleep(0.20)
-        except Exception:
-            pass
     try:
         img = ImageGrab.grab(bbox=box, all_screens=True)
         img.save(str(dest), 'PNG')
         return dest.stat().st_size > 0
     except Exception:
-        # 兜底：整屏
-        try:
-            ImageGrab.grab(all_screens=True).save(str(dest), 'PNG')
-            return dest.stat().st_size > 0
-        except Exception:
-            return False
+        return False
 
 
 # ── ② 采集 ────────────────────────────────────────────────────────────
@@ -130,6 +174,8 @@ def collect(task: str = '', exc: Optional[BaseException] = None,
         return reports_dir()
 
     # 截图
+    if not hwnd:
+        hwnd = find_game_hwnd()
     shot = folder / 'shot.png'
     shot_ok = grab_screenshot(shot, hwnd=hwnd)
 

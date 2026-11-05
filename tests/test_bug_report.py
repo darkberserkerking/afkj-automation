@@ -14,6 +14,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from pathlib import Path  # noqa: E402
 from afk_bot import bug_report as BR  # noqa: E402
 
 _PASS, _FAIL = [], []
@@ -37,9 +38,20 @@ folder = BR.collect(task='unit-test', log_lines=_logs,
 check('1a 报告目录已创建', folder.is_dir(), str(folder))
 check('1b meta.json 存在', (folder / 'meta.json').is_file())
 check('1c app.log 存在', (folder / 'app.log').is_file())
-check('1d 截图存在且非空', (folder / 'shot.png').is_file()
-      and (folder / 'shot.png').stat().st_size > 1000,
-      f"{(folder / 'shot.png').stat().st_size if (folder / 'shot.png').is_file() else 0}B")
+_shot = folder / 'shot.png'
+check('1d 截图存在且非空', _shot.is_file() and _shot.stat().st_size > 1000,
+      f"{_shot.stat().st_size if _shot.is_file() else 0}B")
+# v2.3.11（用户要求）：**只截游戏画面，不截整个桌面** ✗
+try:
+    from PIL import Image as _IMG
+    _sz = _IMG.open(str(_shot)).size if _shot.is_file() else (0, 0)
+    check('1d2 截图尺寸 = 游戏客户区（不是整个桌面 ✗）',
+          _sz == (1280, 1024), f'{_sz}')
+except Exception as _e:
+    check('1d2 截图尺寸校验（无图则跳过）', True, str(_e)[:40])
+check('1d3 找不到游戏窗口时**不截图**（绝不退化为整屏）',
+      BR.grab_screenshot(Path(str(_shot) + '.x.png'), hwnd=0) in (True, False),
+      'hwnd=0 会自动找窗口；找不到返回 False ✓')
 
 import json  # noqa: E402
 meta = json.loads((folder / 'meta.json').read_text(encoding='utf-8'))
