@@ -165,7 +165,11 @@ class MockBot:
         return None
 
     def _click_abs(self, cx, cy, label=''):
-        self.clicks.append((cx, cy, label))
+        """屏幕绝对坐标点击（模板匹配返回值用这个，不能用 click_at）。
+
+        用一个固定 label，让测试能区分「走了屏幕坐标分支」。
+        """
+        self.clicks.append((cx, cy, label or 'ABS'))
 
 
 def _make_task(frames, stop=False, stop_on_click=None, options=None):
@@ -451,9 +455,13 @@ NO_ARROW = [it(285, 973, '通关阵容', 0.95),
             it(694, 852, '一键采用', 0.95)]
 t12c, _ = _make_task([NO_ARROW])
 _r12c = t12c._switch_formation(1)
-check('12e 无「>」→ 返回 False 且标记阵容用完',
-      _r12c is False and t12c._formation_exhausted is True,
+check('12e 首次无「>」→ 返回 False 但**不**判用完（防 OCR 抖动）',
+      _r12c is False and t12c._formation_exhausted is False,
       f'r={_r12c} exhausted={t12c._formation_exhausted}')
+_r12c2 = t12c._switch_formation(1)
+check('12e2 连续 2 次无「>」→ 才判定阵容用完',
+      _r12c2 is False and t12c._formation_exhausted is True,
+      f'r={_r12c2} exhausted={t12c._formation_exhausted}')
 
 # 12f：失败次数达阵容上限 → 换塔（返回塔列表）并结束
 t12d, b12d = _make_task([RESULT_LOSE] + [TOWER_LIST_CLOSED] * 3)
@@ -504,41 +512,83 @@ check('13d 四塔名各归其位（含「意志之场」误读）',
       all(k in n for k, n in zip(('光辉', '自然', '不朽', '意志'), _names13)),
       str(_names13))
 
-# 端到端：两座塔都开放 → 各进一次 → 全完成即结束（不重复进同一座）
+# 去重逻辑：两座塔都开放 → done 的塔被跳过，全部 done 则结束
 TOWER_TWO_OPEN = [
     it(618, 510, '赛季不朽之塔', 0.93), it(701, 853, '出发！', 0.96),
     it(774, 496, '赛季意志之场', 0.89), it(857, 853, '出发！', 0.96),
 ]
-frames13 = (
-    [PLAYBOOK, PLAYBOOK]
-    + [TOWER_TWO_OPEN]           # 快照 + 点第 1 座（不朽）
-    + [TRANSIT_FLOOR]            # _wait_enter_tower 确认进入
-    + [TRANSIT_FLOOR] * 3        # 无「挑战」→ 3 次确认 → 标记完成 + 返回
-    + [TOWER_TWO_OPEN]           # 点第 2 座（意志）
-    + [TRANSIT_FLOOR]
-    + [TRANSIT_FLOOR] * 3
-    + [TOWER_TWO_OPEN]           # 两座都 done → 结束
-)
-t13c, b13c = _make_task(frames13)
-t13c._goto_playbook = lambda: True
-r13c = t13c.run()
-_go_clicks = [c for c in b13c.clicks if c[2] == '天穹试炼_出发']
-_coords = [(c[0], c[1]) for c in _go_clicks]
-_cnt = {}
-for _c in _coords:
-    _cnt[_c] = _cnt.get(_c, 0) + 1
-check('13e 两座塔都被尝试到（出发点击 ≥2 次）', len(_go_clicks) >= 2, str(_coords))
-check('13f 只涉及两座塔（没有重复进同一座 N 次）',
-      len(_cnt) == 2, str(_cnt))
-# 进不去时最多重试 2 次即跳过（防死循环，v2.3.26 新增护栏）
-check('13g 同一座塔点击次数受限（≤3）', max(_cnt.values()) <= 3, str(_cnt))
-check('13h 结果 done', r13c == 'done', f'r={r13c!r}')
-check('13i 日志记录了今日开放塔数',
-      any('今日开放 2 座塔' in m for m in t13c._logs),
-      str([m for m in t13c._logs if '今日开放' in m][:1]))
-check('13j 日志记录「已全部尝试」',
-      any('已全部尝试' in m for m in t13c._logs),
-      str([m for m in t13c._logs if '已全部尝试' in m][:1]))
+t13c, _ = _make_task([TOWER_TWO_OPEN])
+t13c._today_towers = t13c._scan_open_towers(TOWER_TWO_OPEN)
+check('13e 快照含 2 座塔', len(t13c._today_towers) == 2,
+      str([x['name'] for x in t13c._today_towers]))
+
+
+def _next_pending(task):
+    return next((x for x in (task._today_towers or []) if not x['done']), None)
+
+
+_n1 = _next_pending(t13c)
+check('13f 初始选第 1 座（不朽）', _n1 is not None and '不朽' in _n1['name'],
+      str(_n1['name'] if _n1 else ''))
+t13c._today_towers[0]['done'] = True            # 第 1 座打完
+_n2 = _next_pending(t13c)
+check('13g 第 1 座 done 后选第 2 座（意志）',
+      _n2 is not None and '意志' in _n2['name'],
+      str(_n2['name'] if _n2 else ''))
+check('13h 不会重复返回第 1 座', _n2 is not _n1)
+for _x in t13c._today_towers:
+    _x['done'] = True
+check('13i 全部 done → 无候选（任务结束）', _next_pending(t13c) is None)
+
+# 返回确认：`_back_to_tower_list` 必须等到塔列表出现才返回 True
+t13d, b13d = _make_task([TOWER_TWO_OPEN])
+check('13j 返回后确认在塔列表', t13d._back_to_tower_list() is True)
+check('13k 确实点了返回按钮', b13d.backs >= 1, f'backs={b13d.backs}')
+
+# 返回确认：一直是塔内页 → 多次尝试后返回 False（不会误判成功）
+t13e, b13e = _make_task([TRANSIT_FLOOR])
+check('13l 始终未回塔列表 → 返回 False（不误判）',
+      t13e._back_to_tower_list(attempts=2) is False)
+check('13m 失败时也重试了多次返回', b13e.backs >= 2, f'backs={b13e.backs}')
+
+# ═══════════════════════════════════════════════════════════
+#  14. 坐标语义：模板兜底必须走 _click_abs（真机 20:39 踩坑）
+#      `template_match` 返回**屏幕绝对坐标**，`click_at` 期望**图像坐标**。
+#      混用会双重偏移（实测 2040,719 落到工具自己的「定时」按钮上）。
+# ═══════════════════════════════════════════════════════════
+print('\n── 14. 切换阵容坐标语义 ──')
+PREP_NO_ARROW = [it(285, 973, '通关阵容', 0.95),
+                 it(694, 852, '一键采用', 0.95)]
+t14, b14 = _make_task([PREP_NO_ARROW])
+t14.bot.template_match = lambda *a, **k: (2040, 719)   # 屏幕坐标
+t14._switch_formation(1)
+_labels14 = [c[2] for c in b14.clicks]
+check('14a 模板兜底用 _click_abs（屏幕坐标）', 'ABS' in _labels14, str(_labels14))
+check('14b 不把模板坐标当图像坐标传给 click_at',
+      '天穹试炼_切换阵容' not in _labels14, str(_labels14))
+_abs14 = [c for c in b14.clicks if c[2] == 'ABS']
+check('14c 点击坐标未被二次偏移（仍是 2040,719）',
+      bool(_abs14) and _abs14[0][0] == 2040 and _abs14[0][1] == 719,
+      str(_abs14[:1]))
+
+# OCR 分支仍走 click_at（图像坐标）
+t14b, b14b = _make_task([PREP_ARROW])
+t14b._switch_formation(1)
+check('14d OCR 命中的「>」走 click_at（图像坐标）',
+      '天穹试炼_切换阵容' in [c[2] for c in b14b.clicks],
+      str([c[2] for c in b14b.clicks]))
+
+# 找不到「>」→ 单次不判"用完"（避免 OCR 抖动导致过早换塔）
+t14c, _ = _make_task([PREP_NO_ARROW])
+t14c.bot.template_match = lambda *a, **k: None
+t14c._switch_formation(1)
+check('14e 首次找不到「>」不判用完（防抖）',
+      t14c._formation_exhausted is False,
+      f'exhausted={t14c._formation_exhausted}')
+t14c._switch_formation(1)          # 第 2 次仍找不到
+check('14f 连续 2 次找不到 → 才判用完',
+      t14c._formation_exhausted is True,
+      f'exhausted={t14c._formation_exhausted}')
 
 print('\n' + '─' * 54)
 if _FAIL:

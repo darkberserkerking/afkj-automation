@@ -140,6 +140,7 @@ class TianqiongTrialTask(BaseTask):
         # 塔名 → 进入失败次数。连续 2 次点「出发」都进不去就跳过该塔，
         # 否则会死循环点同一个按钮（干跑 13e 实测连点 5 次）。
         self._tower_enter_fails: Dict[str, int] = {}
+        self._no_arrow: int = 0     # 连续找不到「>」的次数（2 次才判阵容用完）
 
     # ── 基类契约 ────────────────────────────────────────────
 
@@ -420,51 +421,76 @@ class TianqiongTrialTask(BaseTask):
     def _switch_formation(self, times: int) -> bool:
         """在「通关阵容」面板内点 `>` 切换 N 套推荐阵容。
 
-        照抄 `afk_bot/auto_farm/formation.py:140-219 switch_formation`：
-        只 OCR 一次拿 `>` 坐标，之后同坐标连点；点完验证 `>` 是否消失
-        （消失 = 推荐阵容已全部试过）。
+        ⚠️ 坐标语义必须分清（真机 2026-11-05 20:39 踩坑）：
+          - `bot.click_at(cx, cy)` → 接受**图像坐标**（内部再 image→screen）
+          - `bot.template_match()` → 返回**屏幕绝对坐标**
+        两者混用会双重偏移：实测 `> ` 落在 (2040, 719)，远超游戏窗口宽 1280，
+        正好点到工具自己的「定时」按钮（日志刷「定时功能开发中」），并且
+        游戏失焦后 OCR 读不到 `>` → 误判「推荐阵容已全部试过」。
+        修法：OCR 分支用 `click_at`，模板分支用 `_click_abs`，绝不混用。
 
         Returns:
-            bool: True = 还有阵容可切；False = 已到最后一套
+            bool: True = 还有阵容可切；False = 已到最后一套 / 本次找不到按钮
         """
-        arrow: Optional[Tuple[int, int]] = None
+        arrow_img: Optional[Tuple[int, int]] = None      # OCR：图像坐标
+        arrow_screen: Optional[Tuple[int, int]] = None   # 模板：屏幕坐标
         for it in self.bot._ocr_screen():
             if len(it) < 4 or it[3] < 0.3:
                 continue
             if str(it[2]).strip() in ('>', '＞', '›'):
-                arrow = (int(it[1]), int(it[0]))
+                arrow_img = (int(it[1]), int(it[0]))
                 break
-        if not arrow:
-            # OCR 漏读 → 模板兜底（与自动推图同一张模板）
+        if not arrow_img:
+            # OCR 漏读 → 模板兜底（与自动推图同一张模板，返回屏幕坐标）
             try:
                 hit = self.bot.template_match(
                     'btn_formation_next.png', threshold=0.6, silent=True)
                 if hit:
-                    arrow = (hit[0], hit[1])
+                    arrow_screen = (int(hit[0]), int(hit[1]))
             except Exception as exc:                   # noqa: BLE001
                 self.log(f"[调试] 切换阵容模板异常已忽略: {exc}")
-        if not arrow:
-            self.log("[警告] 未找到「>」按钮 → 已是最后一套阵容")
-            self._formation_exhausted = True
-            return False
 
-        self.log(f"[信息] 切换阵容 {times} 套（点 > {times} 次）| 图像={arrow}")
+        if arrow_img is None and arrow_screen is None:
+            self._no_arrow = getattr(self, '_no_arrow', 0) + 1
+            self.log(f"[警告] 未找到「>」按钮（第 {self._no_arrow} 次）"
+                     " → 本次不切换阵容")
+            # 单次找不到多半是 OCR 抖动/鼠标遮挡，**不立即判"用完"**
+            # （否则会过早换塔，真机 20:40 就因此每 2 分钟换一次塔）
+            if self._no_arrow >= 2:
+                self.log("[警告] 连续 2 次未找到「>」→ 判定推荐阵容已用完")
+                self._formation_exhausted = True
+            return False
+        self._no_arrow = 0
+
+        self.log(f"[信息] 切换阵容 {times} 套（点 > {times} 次）"
+                 + (f"| 图像={arrow_img}" if arrow_img is not None
+                    else f"| 屏幕={arrow_screen}"))
         for i in range(times):
             if self.check_stop():
                 return False
-            self.bot.click_at(arrow[0], arrow[1], '天穹试炼_切换阵容')
+            if arrow_img is not None:
+                self.bot.click_at(arrow_img[0], arrow_img[1],
+                                  '天穹试炼_切换阵容')
+            elif arrow_screen is not None:
+                self.bot._click_abs(arrow_screen[0], arrow_screen[1])
             self._sleep(0.6)
             if i < times - 1:
                 self._sleep(0.2)
 
-        # 验证 `>` 是否还在（不在 = 已到最后一套）
-        still = any(
-            len(it) >= 4 and it[3] >= 0.3
-            and str(it[2]).strip() in ('>', '＞', '›')
-            for it in self.bot._ocr_screen()
-        )
+        # 验证 `>` 是否还在：**连续 2 次读不到**才算消失
+        # （单帧抖动/动画遮挡会误判，误判即过早换塔）
+        still = False
+        for _ in range(2):
+            still = any(
+                len(it) >= 4 and it[3] >= 0.3
+                and str(it[2]).strip() in ('>', '＞', '›')
+                for it in self.bot._ocr_screen()
+            )
+            if still:
+                break
+            self._sleep(1.0)
         if not still:
-            self.log("[警告] 「>」按钮消失 → 推荐阵容已全部试过")
+            self.log("[警告] 连续 2 次读不到「>」→ 推荐阵容已全部试过")
             self._formation_exhausted = True
             return False
         self.log(f"[成功] 已切换到第 {times + 1} 套阵容")
@@ -537,6 +563,26 @@ class TianqiongTrialTask(BaseTask):
         self.log("[警告] 返回按钮模板未命中 → ESC 兜底")
         self.bot.press_esc(label='天穹试炼_返回ESC')
         self._sleep(1.5)
+
+    def _back_to_tower_list(self, attempts: int = 3) -> bool:
+        """返回塔列表并**确认已到达**（换塔 / 本塔打完时用）。
+
+        真机 2026-11-05 20:40：`_back()` 后只 sleep 1.5s 就回主循环，塔内
+        转场还没结束 → 又读到「挑战！」→ 反复进同一座塔（日志里每 2 分钟
+        一次「切换另一座塔」，实际一直在同一座塔内打）。
+
+        Returns:
+            bool: True = 已确认在塔列表；False = 多次尝试仍未回到
+        """
+        for i in range(attempts):
+            self._back()
+            for _ in range(4):
+                self._sleep(1.0)
+                if self._is_tower_list(self.bot._ocr_screen()):
+                    self.log("[成功] 已返回塔列表")
+                    return True
+            self.log(f"[警告] 第 {i + 1} 次返回后仍未到塔列表 → 重试")
+        return False
 
     def _close_result(self, items: List[Tuple]) -> Optional[bool]:
         """结算页处理，返回本场胜负。
@@ -689,7 +735,11 @@ class TianqiongTrialTask(BaseTask):
                     self._cur_tower['done'] = True
                 if self._cur_go:
                     self._exhausted_go.add(self._cur_go)
-                self._back()
+                # v2.3.28：必须**确认已回到塔列表**，否则转场期又读到
+                # 「挑战！」会重复进同一座塔（真机 20:40 实测）
+                if not self._back_to_tower_list():
+                    self.log("[错误] 多次尝试仍无法返回塔列表 → 终止")
+                    return 'failed'
                 continue
 
             # ③ 结算页 → 胜利进下一层 / 失败换阵容（v2.3.25）
@@ -716,7 +766,10 @@ class TianqiongTrialTask(BaseTask):
                             self._exhausted_go.add(self._cur_go)
                         self._fail_idx = 0
                         self._formation_exhausted = False
-                        self._back()
+                        # v2.3.28：确认回到塔列表再选下一座
+                        if not self._back_to_tower_list():
+                            self.log("[错误] 多次尝试仍无法返回塔列表 → 终止")
+                            return 'failed'
                         continue
                 continue
 
