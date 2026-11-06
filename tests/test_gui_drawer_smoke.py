@@ -287,6 +287,26 @@ check('删除后 _task_rows 同步', 'labyrinth#2' not in app._task_rows)
 # ══ 6. 任务说明小字 / 参数渲染（v1.8.15 / v1.9.67）══════════
 _lab_meta = TaskRegistry.get_by_id('labyrinth')
 app._close_task_drawers()
+# v2.3.49（真机 23:30）：设置抽屉「检查更新失败…」文字左右被裁。
+# 根因：wraplength 硬编码 210，而抽屉内容宽只有 224-12*2=200 → 溢出 10px。
+# 断言：状态 label 的 wraplength 必须与容器可用宽度匹配（且留余量）。
+_ct_w = app._upd_status_lbl.master.winfo_width()
+_ct_wrap = int(float(app._upd_status_lbl.cget('wraplength') or 0))
+check('v2.3.49 设置抽屉状态 label 的 wraplength ≤ 可用宽度（不再裁字）',
+      0 < _ct_wrap <= max(120, _ct_w) and _ct_wrap <= _ct_w,
+      f'wraplength={_ct_wrap} 容器宽={_ct_w}')
+check('v2.3.49 状态 label 左对齐（多行可读）',
+      str(app._upd_status_lbl.cget('justify')) in ('left', 'w'),
+      str(app._upd_status_lbl.cget('justify')))
+# 模拟长错误文案后仍不溢出
+app._set_update_status('检查更新失败：网络连接被中断（TLS 握手未完成）。'
+                       '常见于直连 GitHub 不稳定：请稍后重试')
+app.update_idletasks()
+_ct_wrap2 = int(float(app._upd_status_lbl.cget('wraplength') or 0))
+check('v2.3.49 设置长错误文案后 wraplength 仍不超容器',
+      0 < _ct_wrap2 <= max(120, _ct_w) and _ct_wrap2 <= _ct_w,
+      f'wraplength={_ct_wrap2} 容器宽={_ct_w}')
+
 app._toggle_drawer('labyrinth#1')
 app.update_idletasks()
 _lab_lbls = drawer_texts(app._drawers['labyrinth#1'])
@@ -303,9 +323,12 @@ for _w in app._drawers['labyrinth#1'].winfo_children():
             _desc_wls.append(int(_w._label.cget('wraplength')))
     except Exception:
         pass
-check('v2.3.35 说明 label 设了 wraplength（超宽自动换行不裁切）',
-      bool(_desc_wls) and all(0 < w <= 400 for w in _desc_wls),
-      f'wraplength={_desc_wls}')
+# v2.3.49：判据改为「wraplength ≤ 父容器实际宽度」——固定上限 400 是错的
+# （任务详情抽屉实测宽 532，正确 wraplength 是 524；旧断言会误报）。
+_parent_w = app._drawers['labyrinth#1'].winfo_width()
+check('v2.3.35 说明 label 设了 wraplength 且不超过容器宽度（超宽自动换行不裁切）',
+      bool(_desc_wls) and all(0 < w <= max(120, _parent_w) for w in _desc_wls),
+      f'wraplength={_desc_wls} 容器宽={_parent_w}')
 check('v1.9.67 迷宫抽屉无「时间（秒）」（已移除）',
       not any('时间（秒）' in t for t in _lab_lbls),
       str([t for t in _lab_lbls if '时间' in t][:2]))

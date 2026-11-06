@@ -195,14 +195,105 @@ def _ssl_context():
 _SSL_CTX = None
 
 
+def _LOGGER_INFO(msg: str) -> None:
+    """代理切换等信息（默认静默，调用方可覆盖；v2.3.49）。"""
+    return
+
+
+# ── v2.3.49：本机代理探测 ────────────────────────────────────
+# 用户双击 exe 不会继承命令行里的 HTTP(S)_PROXY，只能直连 → GitHub 常失败。
+# 这里主动探测常见本地代理端口，命中则用它发请求（仅本机回环，不经外部服务）。
+_LOCAL_PROXY_PORTS: Tuple[int, ...] = (
+    7890, 7897, 10809, 1080, 2600, 10031, 8080, 8888,
+)
+_LOCAL_PROXY_CACHE: Optional[List[int]] = None
+_LOCAL_PROXY_TTL: float = 0.0          # 缓存时间戳（60s 内不重复探测）
+_PROBE_TIMEOUT: float = 0.25           # 单端口探测超时（秒）
+
+
+def _probe_local_proxies(force: bool = False) -> List[int]:
+    """探测本机存活的常见代理端口（仅 TCP 连通性，缓存 60s）。"""
+    global _LOCAL_PROXY_CACHE, _LOCAL_PROXY_TTL
+    now = time.time()
+    if (not force and _LOCAL_PROXY_CACHE is not None
+            and now - _LOCAL_PROXY_TTL < 60):
+        return list(_LOCAL_PROXY_CACHE)
+    import socket
+    alive: List[int] = []
+    for port in _LOCAL_PROXY_PORTS:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(_PROBE_TIMEOUT)
+        try:
+            if sock.connect_ex(('127.0.0.1', port)) == 0:
+                alive.append(port)
+        except Exception:                                  # noqa: BLE001
+            pass
+        finally:
+            try:
+                sock.close()
+            except Exception:                              # noqa: BLE001
+                pass
+    _LOCAL_PROXY_CACHE = list(alive)
+    _LOCAL_PROXY_TTL = now
+    return alive
+
+
+def _build_opener(proxy_map: Optional[Dict[str, str]]):
+    """构造带本项目 SSL 上下文的 opener；proxy_map=None 表示用系统/环境变量。"""
+    handlers: list = [urllib.request.HTTPSHandler(context=_SSL_CTX or _ssl_context())]
+    if proxy_map is not None:
+        handlers.append(urllib.request.ProxyHandler(proxy_map))
+    return urllib.request.build_opener(*handlers)
+
+
 def _default_fetch(url: str, token: str, timeout: float) -> bytes:
+    """按优先级尝试：系统/环境代理 → 直连 → 本机探测到的代理。
+
+    v2.3.49：用户双击 exe 不继承命令行代理变量，直连 GitHub 常失败；
+    本函数让 exe 也能用上本机代理（只探回环端口，不经过外部服务）。
+    """
     global _SSL_CTX
     if _SSL_CTX is None:
         _SSL_CTX = _ssl_context()
-    req = urllib.request.Request(url, headers=_headers(token))
-    with urllib.request.urlopen(req, timeout=timeout,
-                                context=_SSL_CTX) as resp:  # noqa: S310
-        return resp.read()
+
+    attempts: List[str] = []
+    last_exc: Optional[BaseException] = None
+
+    def _try(tag: str, opener) -> Optional[bytes]:
+        nonlocal last_exc
+        req = urllib.request.Request(url, headers=_headers(token))
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception as e:                             # noqa: BLE001
+            attempts.append(f'{tag}({type(e).__name__})')
+            last_exc = e
+            return None
+
+    # ① 系统证书/环境变量代理（urllib 默认）
+    got = _try('系统代理', _build_opener(None))
+    if got is not None:
+        return got
+
+    # ② 直连
+    got = _try('直连', _build_opener({}))
+    if got is not None:
+        return got
+
+    # ③ 本机探测到的代理端口
+    for port in _probe_local_proxies():
+        proxy = f'http://127.0.0.1:{port}'
+        got = _try(f'本地代理:{port}',
+                   _build_opener({'http': proxy, 'https': proxy}))
+        if got is not None:
+            _LOGGER_INFO(f'检查更新：经本机代理 {port} 成功')
+            return got
+
+    # 全部失败 → 抛出带诊断的异常
+    raise UpdateError(
+        '检查更新失败：无法连接 GitHub（已尝试：'
+        + '、'.join(attempts) + '）。'
+        + _friendly_net_hint(last_exc))
 
 
 # ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────

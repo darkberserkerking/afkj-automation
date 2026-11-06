@@ -837,10 +837,14 @@ class App(ctk.CTk):
         lbl_sum.pack(fill='x')
         _metrics = self._instance_metrics(inst)
         if _metrics:
-            ctk.CTkLabel(mid, text=_metrics,
-                         font=('Microsoft YaHei UI', 10),
-                         text_color=TEXT_DIM, anchor='w',
-                         wraplength=300).pack(fill='x')
+            _metrics_lbl = ctk.CTkLabel(
+                mid, text=_metrics,
+                font=('Microsoft YaHei UI', 10),
+                text_color=TEXT_DIM, anchor='w', justify='left',
+                wraplength=160)
+            _metrics_lbl.pack(fill='x')
+            # v2.3.49：旧 300 大于卡片可用宽度 → 少见的超长指标行会被裁
+            self._auto_wrap(_metrics_lbl)
 
         # 状态 pill（六态）
         pill = ctk.CTkLabel(row, text='', font=('Microsoft YaHei UI', 12, 'bold'),
@@ -961,11 +965,15 @@ class App(ctk.CTk):
             # v2.3.35：去掉 desc[:50] 硬截与固定 height=18（会裁掉换行后的
             # 第二行）；wraplength 必须小于抽屉可用宽度，否则换行不触发、
             # 长文案溢出被裁（v2.3.2 状态标签同款坑）。
-            ctk.CTkLabel(
+            _desc_lbl = ctk.CTkLabel(
                 drawer, text=desc,
                 font=('Microsoft YaHei UI', 11),
-                text_color=TEXT_DIM, anchor='w', wraplength=320
-            ).pack(fill='x', padx=SPACE_MD, pady=(SPACE_SM, 0))
+                text_color=TEXT_DIM, anchor='w', justify='left',
+                wraplength=160,
+            )
+            _desc_lbl.pack(fill='x', padx=SPACE_MD, pady=(SPACE_SM, 0))
+            # v2.3.49：旧 320 > 抽屉宽 290，换行不触发 → 溢出被裁
+            self._auto_wrap(_desc_lbl)
 
         # ── 参数表单（options_schema → 控件）────────────────
         # v1.8.63：新增 enum 类型（CTkOptionMenu 下拉，二选一模式）；
@@ -1402,6 +1410,68 @@ class App(ctk.CTk):
         self._refresh_batch_btns()
 
     @staticmethod
+    def _auto_wrap(label, reserve: int = 8):
+        """让 label 的 wraplength 跟随**父容器真实宽度**，避免长文本溢出被裁。
+
+        v2.3.49（真机 23:30）：「检查更新失败…」弹窗文字左右都被裁。
+        根因：wraplength 是固定像素，必须 ≤ label 可用宽度；旧值
+        210/300/320 均大于抽屉可用宽度（抽屉 290）。
+
+        **不能用 label.winfo_width()**：初次 <Configure> 时布局未完成，
+        该值可能是文本请求宽度（实测出现过 532 → wraplength 被设成 518，
+        反而更大）。改用 `label.master` 的宽度减去 pack 的 padx。
+
+        Args:
+            label: CTkLabel 实例
+            reserve: 额外右侧预留像素
+
+        Returns:
+            label 本身
+        """
+        def _apply(_event=None):
+            try:
+                parent = label.master
+                if parent is None:
+                    return
+                _pw = int(parent.winfo_width())
+                if _pw <= 60:          # 尚未布局
+                    return
+                _padx = 0
+                try:
+                    _pi = label.pack_info()
+                    _px = _pi.get('padx', 0)
+                    if isinstance(_px, (tuple, list)):
+                        _padx = max(int(v) for v in _px) if _px else 0
+                    else:
+                        _padx = int(_px or 0)
+                except Exception:
+                    _padx = 0
+                _target = max(80, _pw - 2 * _padx - reserve)
+                try:
+                    _cur = int(float(label.cget('wraplength') or 0))
+                except Exception:
+                    _cur = 0
+                if abs(_cur - _target) > 4:
+                    label.configure(wraplength=_target)
+            except Exception:
+                pass
+
+        try:
+            # 父容器尺寸变化时也要重算（抽屉展开/窗口缩放）
+            label.master.bind('<Configure>', _apply, add='+')
+        except Exception:
+            pass
+        try:
+            label.bind('<Configure>', _apply, add='+')
+        except Exception:
+            pass
+        try:
+            label.configure(wraplength=160)   # 首帧保守值
+        except Exception:
+            pass
+        return label
+
+    @staticmethod
     def _truncate(text: str, max_len: int) -> str:
         """超长文本截断，防止行内溢出"""
         if len(text) <= max_len:
@@ -1700,10 +1770,11 @@ class App(ctk.CTk):
 
         self._upd_status_lbl = ctk.CTkLabel(
             drawer_content, text='', font=('Microsoft YaHei UI', 12),
-            # v2.3.2：原 wraplength=300 **大于抽屉可用宽度(~210)** → 换行不触发
-            # 长错误文本直接溢出被裁（真机 13:17 截图：「…violation of proto」✗）
-            text_color=TEXT_DIM, anchor='w', wraplength=210,
+            # v2.3.49：wraplength 改为**跟随真实宽度**（v2.3.2 的固定 210 仍
+            # 大于实际可用宽度 → 长错误文本左右被裁，真机 23:30 截图）。
+            text_color=TEXT_DIM, anchor='w', justify='left', wraplength=160,
         )
+        self._auto_wrap(self._upd_status_lbl)
         self._upd_status_lbl.pack(**pad)
 
         # ── ⑦ 报 Bug（v2.3.10）：手动采集现场并上传 ──
@@ -1734,10 +1805,21 @@ class App(ctk.CTk):
             pass
 
     def _set_update_status(self, text: str, color=None) -> None:
-        """更新状态文案（**必须主线程调用**，后台线程走 _post_ui）。"""
+        """更新状态文案（**必须主线程调用**，后台线程走 _post_ui）。
+
+        v2.3.49：设置时按当前真实宽度同步 wraplength（首次布局前
+        winfo_width=1 → 退回 160，后续 <Configure> 会自动纠正），
+        并强制左对齐 —— 长错误提示不再左右被裁。
+        """
         try:
-            self._upd_status_lbl.configure(text=text,
-                                          text_color=color or TEXT_DIM)
+            try:
+                _w = int(self._upd_status_lbl.winfo_width())
+            except Exception:
+                _w = 0
+            _wrap = max(80, _w - 14) if _w > 60 else 160
+            self._upd_status_lbl.configure(
+                text=text, text_color=color or TEXT_DIM,
+                justify='left', wraplength=_wrap)
         except Exception:
             pass
 
