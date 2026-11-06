@@ -205,6 +205,55 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
         return resp.read()
 
 
+# ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────
+# 真机 23:05：检查更新报 `[ASN1: NOT_ENOUGH_DATA] not enough data (_ssl.c:4057)`。
+# 实测排除证书问题（exe 内 cacert.pem 与源码 md5 一致、TLS 5/5 通），
+# 属直连 api.github.com 时握手被中途截断的瞬时故障。
+_NET_RETRY_TIMES: int = 2          # 额外重试次数（总计 1 + 2 次）
+_NET_RETRY_WAIT: float = 1.0       # 首次重试等待；第 n 次等待 = n × 该值
+
+_TRANSIENT_MARKS: Tuple[str, ...] = (
+    'not_enough_data',      # TLS 握手数据不完整（本次报障）
+    'not enough data',      # 同上（小写去下划线后的报错原文）
+    'eof occurred',         # 连接被对端关闭
+    'connection reset',
+    'connection aborted',
+    'remote end closed',
+    'timed out',
+    'timeout',
+    'temporary failure',
+    'network is unreachable',
+    'getaddrinfo failed',
+)
+
+
+def _is_transient_net_error(exc: BaseException) -> bool:
+    """判断是否为可重试的瞬时网络/TLS 错误。"""
+    text: str = f'{type(exc).__name__}: {exc}'.lower()
+    return any(k in text for k in _TRANSIENT_MARKS)
+
+
+def _friendly_net_hint(exc: Optional[BaseException]) -> str:
+    """把底层 SSL/网络异常翻译成用户可操作的中文提示。"""
+    if exc is None:
+        return '未获得响应，请重试'
+    text: str = f'{type(exc).__name__}: {exc}'.lower()
+    if 'not_enough_data' in text or ('asn1' in text and '_ssl' in text):
+        return ('网络连接被中断（TLS 握手未完成）。常见于直连 GitHub 不稳定：'
+                '请稍后重试；若已开代理，请确认代理对本程序生效'
+                '（双击启动不继承命令行里的代理环境变量）')
+    if 'certificate verify failed' in text:
+        return '证书校验失败（可能被代理/防火墙拦截）。请检查网络代理设置后重试'
+    if 'timed out' in text or 'timeout' in text:
+        return '连接超时。请检查网络连接后重试'
+    if any(k in text for k in ('eof occurred', 'connection reset',
+                               'connection aborted', 'remote end closed')):
+        return '连接被对端中断。请稍后重试（GitHub 直连偶发不稳定）'
+    if 'getaddrinfo failed' in text or 'network is unreachable' in text:
+        return '无法解析/连接 GitHub。请检查网络与 DNS 设置'
+    return str(exc)
+
+
 def check_latest(
     token: Optional[str] = None,
     timeout: float = 10.0,
@@ -222,8 +271,31 @@ def check_latest(
     """
     tok = resolve_token(token)
     _fetch = fetch or _default_fetch
+
+    # v2.3.48：网络瞬断自动重试（HTTPError 不重试——401/403/404 有专门提示）
+    def _fetch_with_retry() -> bytes:
+        last_exc: Optional[BaseException] = None
+        for attempt in range(_NET_RETRY_TIMES + 1):
+            try:
+                return _fetch(API_LATEST, tok, timeout)
+            except urllib.error.HTTPError:
+                raise                      # 交给外层按状态码处理
+            except Exception as e:         # noqa: BLE001
+                last_exc = e
+                if (attempt < _NET_RETRY_TIMES
+                        and _is_transient_net_error(e)):
+                    time.sleep(_NET_RETRY_WAIT * (attempt + 1))
+                    continue
+                raise UpdateError(
+                    f'检查更新失败：{_friendly_net_hint(e)}') from e
+        # 循环必然 return 或 raise；此行仅为类型完整
+        raise UpdateError(
+            f'检查更新失败：{_friendly_net_hint(last_exc)}')
+
     try:
-        raw = _fetch(API_LATEST, tok, timeout)
+        raw = _fetch_with_retry()
+    except UpdateError:
+        raise
     except urllib.error.HTTPError as e:
         if e.code == 404:
             # v2.2.32：仓库已公开 → 前半句区分「没发 Release」与「Token 无权」
