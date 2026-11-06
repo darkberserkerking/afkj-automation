@@ -30,6 +30,17 @@
   · 纯图案的 6 个职业圆形图标 → 模板匹配（底部 tab 无文字，
     OCR 全无输出，必须用模板）；模板为 RGBA 圆外透明 + maskedNCC
 
+【一键装备（v2.3.40 新增场景）】
+  · 从宝箱等其他途径拿到更高级装备时，职业页底部横幅会换成橙色
+    「一键装备」大按钮（真机 OCR (647,856) conf 0.98，ry≈0.834）。
+    该界面仍有「锻造等级上限」、六件全 700 级、无「锻造」按钮，
+    **但两种完成横幅都不显示** → 必须先点它换装，再判是否可锻造。
+  · 分支优先级：成功页 → 弹窗 → **一键装备** → 职业页 → 主界面 → 入口。
+  · 按 UI 分流规则，有明确文字的按钮走 OCR 定位（不做模板）；
+    点击后强制重识别、重新走状态机，不预设后续界面。
+  · 按钮可能常驻：点过一次后仍显示，给 5 帧过渡；仍无变化则
+    记明确告警、按「已换装完成」切下一职业，不误杀正常流程。
+
 【职业页判据（v2.3.39 真机修复）】
   · 横幅文案随进度变：还有可锻造时「当前无可替换装备」，六件全 700
     后变「当前暂无可锻造的装备」。把横幅写进 AND 判据会让**完成态**
@@ -100,6 +111,11 @@ _W_MAIN = ('待领宝箱列表', '当前赛季')
 _W_CLASS = ('锻造等级上限',)      # 8/8 截图全中；弹窗亦含此词，靠优先级排除
 _W_CLASS_DONE = ('当前无可替换装备', '当前暂无可锻造的装备')
 _W_DIALOG = ('当前装备', '可锻造装备')
+# v2.3.40：其他途径获得更高级装备时，底部横幅换成橙色「一键装备」按钮。
+# 该界面仍含「锻造等级上限」但两种完成横幅都没有 → 必须在完成判定之前
+# 先点它换装，否则旧逻辑会直接判「本职业完成」切走。
+_W_ONEKEY = '一键装备'
+_ONEKEY_STREAK_MAX: int = 5    # 按钮常驻时，几帧后按完成继续切职业
 _W_SUCCESS = ('锻造成功', '穿戴新装备')
 _W_ENTRY = '赛季装备'
 _W_HERO_HALL = '英雄厅堂'
@@ -165,6 +181,7 @@ class SeasonEquipmentTask(BaseTask):
         blob = ' '.join(texts)
         return (all(k in blob for k in _W_MAIN)
                 or all(k in blob for k in _W_CLASS)
+                or _W_ONEKEY in blob
                 or any(k in blob for k in _W_CLASS_DONE)
                 or all(k in blob for k in _W_DIALOG)
                 or all(k in blob for k in _W_SUCCESS))
@@ -230,6 +247,9 @@ class SeasonEquipmentTask(BaseTask):
         cur_class: Optional[str] = None
         no_progress = 0
         last_forge_pos: Optional[Tuple[int, int]] = None
+        onekey_streak = 0
+        onekey_done: set = set()
+        onekey_persistent = False   # 已确认按钮常驻 → 后续职业不再重复等待
 
         while True:
             if self.check_stop():
@@ -279,6 +299,60 @@ class SeasonEquipmentTask(BaseTask):
                     self._sleep(2.5)   # 几秒锻造动画
                 continue
 
+            # ②.5 一键装备：其他途径获得更高级装备 → 先换装再锻造
+            #      必须早于 ③：该界面含「锻造等级上限」但无完成横幅，
+            #      落到 ③ 会被误判「本职业已无可锻造」直接切走。
+            if (_W_ONEKEY in blob
+                    and not all(k in blob for k in _W_DIALOG)
+                    and not all(k in blob for k in _W_SUCCESS)):
+                pos = self._find_text_exact(items, _W_ONEKEY)
+                if pos is None:
+                    stall += 1
+                else:
+                    if cur_class is None:
+                        cur_class = self._detect_class(items)
+                    key = cur_class or 'unknown'
+                    if key in onekey_done:
+                        onekey_streak += 1
+                        if onekey_persistent or onekey_streak >= _ONEKEY_STREAK_MAX:
+                            # 按钮可能常驻（换装后不消失、只是无更高装备）。
+                            # 不假设界面，按「已换装完成」继续切职业，
+                            # 避免每个正常职业都被判卡住。
+                            self.log(f"[信息] {key}「一键装备」已执行，"
+                                     f"按钮仍显示 {onekey_streak} 帧"
+                                     "（疑似常驻/无更高装备），按完成继续"
+                                     f" | 末次坐标={pos}")
+                            onekey_persistent = True
+                            done_classes.add(key)
+                            no_progress = 0
+                            onekey_streak = 0
+                            nxt_ok = next((c for c in CLASS_ORDER
+                                           if c not in done_classes), None)
+                            if nxt_ok is None:
+                                self.log("[成功] 六职业全部完成，"
+                                         f"累计 {forged} 件")
+                                return 'done'
+                            if not self._switch_class(nxt_ok):
+                                self.log(f"[错误] 切换职业「{nxt_ok}」失败"
+                                         "（模板未命中）")
+                                return 'failed'
+                            cur_class = nxt_ok
+                            clicks += 1
+                            stall = 0
+                            self.log(f"[信息] 切换职业 → {nxt_ok}")
+                            self._sleep(_LOOP_SLEEP)
+                            continue
+                    else:
+                        onekey_done.add(key)
+                        onekey_streak = 0
+                    self.bot.click_at(pos[0], pos[1], '一键装备')
+                    clicks += 1
+                    stall = 0
+                    no_progress = 0
+                    self.log(f"[点击] {key}「一键装备」换装 | 图像={pos}")
+                    self._sleep(2.0)   # 换装动画；下一轮强制重识别重新判界面
+                continue
+
             # ③ 职业装备页 → 找卡片「锻造」按钮
             #    弹窗也含「锻造等级上限」，显式排除防顺序调整后抢判
             if (all(k in blob for k in _W_CLASS)
@@ -312,6 +386,7 @@ class SeasonEquipmentTask(BaseTask):
                     self.log(f"[成功] {cur_class}装备已无可锻造"
                              f"（{done_word}；{len(done_classes)}/6 职业完成）")
                 no_progress = 0
+                onekey_streak = 0
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
                 if nxt is None:

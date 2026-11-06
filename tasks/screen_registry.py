@@ -499,7 +499,7 @@ def build_default_registry() -> ScreenRegistry:
                        and not h('锻造成功'))(_mk_has(items)),
         priority=92,
         desc='职业装备页（锻造等级上限 8/8 实测稳定；排除弹窗/成功页。'
-             '横幅文案随进度变化，见 v2.3.39 真机）',
+             '横幅随进度变化，另有「一键装备」换装态，见 v2.3.39/40）',
     )
     reg.register(
         'season.equip_main',

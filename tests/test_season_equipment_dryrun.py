@@ -579,6 +579,124 @@ check('9e 「当前无可替换装备」不触发完成（有按钮照样锻）'
       and not any('已无可锻造' in l for l in logs_b),
       str([c[0] for c in bot_b.clicks][:3]))
 
+
+# ══ 10. v2.3.40 一键装备：其他途径获得更高级装备 ══════════
+#   真机 clipboard-2026-11-06T12-08-03-535Z-e7229000.jpg (1281x1026)
+#   MaaOCR：「一键装备」(647,856) conf .98 / rx.505 ry.834（橙大按钮）
+#          「锻造等级上限：700」(1002,644) conf .99、六件全 700级
+#          两种完成横幅都没有、无「锻造」按钮。
+#   旧状态机：命中 _W_CLASS → 无按钮 → 误判「本职业完成」直接切走，
+#             漏掉换装。
+#   分叉：修复前从不点一键装备；修复后先点，再继续判后续界面。
+print('\n── 10. 一键装备行为分叉（真机 v2.3.40）──')
+
+X_ONEKEY, Y_ONEKEY = 647, 856       # 真机 MaaOCR 实测
+
+
+def _onekey_frame(zh='法师'):
+    """一键装备态：稳定词 + 橙色大按钮，两种完成横幅均无。"""
+    return [it(62, 293, '师装备'),
+            it(643, 212, f'{zh}装备'),
+            it(644, 1002, '锻造等级上限：700'),
+            it(514, 640, zh),
+            *[it(772, x, '700级') for x in (434, 518, 602, 686, 772, 856)],
+            it(Y_ONEKEY, X_ONEKEY, '一键装备')]
+
+
+def _legacy_onekey_class():
+    """把源码回退成 v2.3.39（无一键装备分支），exec 出等价旧类。"""
+    src = open(TASK_SRC, encoding='utf-8').read()
+    marker = "            # ②.5 一键装备"
+    assert src.count(marker) == 1
+    head, tail = src.split(marker, 1)
+    _, tail = tail.split("            # ③ 职业装备页", 1)
+    back = head + "            # ③ 职业装备页" + tail
+    back = back.split('TaskRegistry.register(')[0]
+    ns = {'__name__': '_season_onekey_legacy', '__file__': TASK_SRC}
+    exec(compile(back, TASK_SRC, 'exec'), ns)   # noqa: S102
+    return ns['SeasonEquipmentTask']
+
+
+LegacyOneKeyTask = _legacy_onekey_class()
+
+
+def _onekey_case(task_cls):
+    # 启动即一键装备态 → 点击 → 之后变完成态 → 切完剩余职业 → done
+    frames = [
+        _onekey_frame('法师'),       # startup_probe
+        _onekey_frame('法师'),       # loop: 应点一键装备
+        _done_frame('法师'),         # 换装后完成态
+        *[_done_frame(z) for z in ('战士', '游侠', '射手', '坦克', '辅助')],
+    ]
+    bot = _SeqBot(frames,
+                  tpl_hits={os.path.basename(v): (500, 986)
+                            for v in CLASS_TPL.values()})
+    logs = []
+    paus = threading.Event(); paus.set()
+    t = task_cls({
+        'bot': bot, 'logger': lambda m: logs.append(m), 'stats': {},
+        'stop_event': threading.Event(), 'pause_event': paus,
+        'options': {}, 'max_time': None, 'max_turns': None,
+        'start_turns': 0, 'inst_id': 'season_equipment#1',
+    })
+    return t.run(), bot, logs
+
+
+res_o, bot_o, logs_o = _onekey_case(LegacyOneKeyTask)
+check('10a 修复前从不点「一键装备」（漏换装）',
+      not any(c[0] == '一键装备' for c in bot_o.clicks),
+      str([c[0] for c in bot_o.clicks][:5]))
+check('10b 修复前把该界面误判为本职业完成',
+      any('已无可锻造' in l for l in logs_o),
+      str([l for l in logs_o if '已无可锻造' in l][:1]))
+
+res_n, bot_n, logs_n = _onekey_case(SeasonEquipmentTask)
+check('10c 修复后先点「一键装备」且坐标=真机实测 (647,856)',
+      any(c[0] == '一键装备' and c[1] == X_ONEKEY and c[2] == Y_ONEKEY
+          for c in bot_n.clicks),
+      str([c for c in bot_n.clicks if c[0] == '一键装备'][:2]))
+check('10d 一键装备只点一次（不重复换装）',
+      sum(1 for c in bot_n.clicks if c[0] == '一键装备') == 1,
+      f'{sum(1 for c in bot_n.clicks if c[0]=="一键装备")} 次')
+check('10e 换装后继续走完成态 → done', res_n == 'done', res_n)
+check('10f 换装日志带职业名与坐标',
+      any('一键装备' in l and '法师' in l for l in logs_n),
+      str([l for l in logs_n if '一键装备' in l][:1]))
+
+# 同一职业连点一键装备无变化 → 护栏止损，不空转
+bot_stuck = _SeqBot([_onekey_frame('法师')] * 12,
+                    tpl_hits={os.path.basename(v): (500, 986)
+                              for v in CLASS_TPL.values()})
+res_s, logs_s, bot_s = run_case(bot_stuck)
+# v2.3.40 边界决策：按钮可能常驻，不误杀 → 告警后按完成态逐个切职业
+check('10g 按钮常驻不误杀 → 收敛到 done', res_s == 'done', res_s)
+check('10h 有明确告警且带末次坐标',
+      any('已执行' in l and '按钮仍显示' in l and '末次坐标' in l
+          for l in logs_s),
+      str([l for l in logs_s if '按钮仍显示' in l][-1:]))
+check('10i-2 点击有界（首次职业重试 5 帧，其余职业各 1 次）',
+      sum(1 for c in bot_s.clicks if c[0] == '一键装备') <= 10,
+      f'一键装备点击 {sum(1 for c in bot_s.clicks if c[0]=="一键装备")} 次')
+
+# 混合：一键装备换装后，界面出现可锻造按钮 → 必须继续锻造
+frames_mix = [
+    _onekey_frame('法师'),
+    _onekey_frame('法师'),
+    _class_with_forge('法师'),       # 换装后出现锻造按钮
+    _dialog_frame(), _success_frame(),
+    _done_frame('法师'),
+    *[_done_frame(z) for z in ('战士', '游侠', '射手', '坦克', '辅助')],
+]
+bot_mix10 = _SeqBot(frames_mix,
+                    tpl_hits={os.path.basename(v): (500, 986)
+                              for v in CLASS_TPL.values()})
+res_m10, logs_m10, bot_m10 = run_case(bot_mix10)
+check('10i 换装后出现可锻造按钮 → 正常继续锻造',
+      res_m10 == 'done'
+      and any(c[0] == '卡片_锻造' for c in bot_m10.clicks)
+      and any(c[0] == '穿戴新装备' for c in bot_m10.clicks),
+      str([c[0] for c in bot_m10.clicks][:6]))
+
 print('\n' + '=' * 60)
 if _FAIL:
     print(f'❌ 失败 {len(_FAIL)} 项：')

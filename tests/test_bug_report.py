@@ -51,8 +51,17 @@ if _has_game and _shot.is_file() and _shot.stat().st_size > 1000:
         from PIL import Image as _IMG
         _sz = _IMG.open(str(_shot)).size
         check('1d 有游戏窗口 → 截图存在且非空', True, f'{_shot.stat().st_size}B')
+        # v2.3.40：客户区尺寸随窗口缩放/横竖屏变化（真机实测过
+        # 1280x1024 与 750x1334），硬编码会误报。改为取真实客户区比对。
+        try:
+            import win32gui as _wg
+            _r = _wg.GetClientRect(BR.find_game_hwnd())
+            _expected = (_r[2] - _r[0], _r[3] - _r[1])
+            _ok = _sz == _expected
+        except Exception as _e:      # 拿不到客户区 → 不放行，明确失败
+            _expected, _ok = f'读取失败: {_e}', False
         check('1d2 截图尺寸 = 游戏客户区（不是整个桌面 ✗）',
-              _sz == (1280, 1024), f'{_sz}')
+              _ok, f'截图={_sz} 客户区={_expected}')
     except Exception as _e:
         check('1d 截图可读', False, str(_e)[:40])
         check('1d2 截图尺寸校验', False, 'N/A')
