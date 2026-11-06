@@ -473,6 +473,35 @@ def build_default_registry() -> ScreenRegistry:
                         # 1 层底部 UI 栏的常驻文字，会抢判本画面（独立验证 F1）
         desc='神秘屋（1 层；内部横匾 神秘珍藏/金玫瑰高定/月桂酒馆）',
     )
+    # ── v2.3.44 天穹/竞技场结算页（修跨任务判据撞车）──────────────
+    #   真机实测（用户 2026-11-06 21:17 素材）：未注册时
+    #   天穹胜利→labyrinth.victory、天穹失败→goddess.victory_result、
+    #   竞技场结算→labyrinth.victory。均属「被别人的宽泛判据吃掉」。
+    #   判据只用各自**独有词**，避免误伤：
+    #     迷宫/女神均无「击败奖励」；女神有「再次挑战」但无「推荐提升」；
+    #     迷宫「成功替换」页含「点击空白处关闭」→ 竞技场必须用
+    #     「回放/殿堂斗士」而不是提示语。
+    #   priority 96~98：早于 labyrinth.victory(102)/goddess.victory_result。
+    reg.register(
+        'tianqiong.victory',
+        lambda items: (lambda h: h('击败奖励') and h('下一关'))(_mk_has(items)),
+        priority=96,
+        desc='天穹试炼胜利结算（击败奖励 + 下一关）',
+    )
+    reg.register(
+        'tianqiong.failure',
+        lambda items: (lambda h: h('推荐提升') and h('再次挑战'))(
+            _mk_has(items)),
+        priority=97,
+        desc='天穹试炼失败结算（推荐提升 + 再次挑战）',
+    )
+    reg.register(
+        'arena.result',
+        lambda items: (lambda h: h('击败奖励')
+                       and (h('回放') or h('殿堂斗士')))(_mk_has(items)),
+        priority=98,
+        desc='竞技场战斗结算（击败奖励 + 回放/殿堂斗士）',
+    )
     # ── v2.3.37 赛季职业装备（更新装备）──────────────────────
     #   判据全部来自真机 MaaOCR（17 张截图批量识别），双词 AND 避开
     #   底栏常驻文字；priority 90~93 早于常规 100+ 判据。
@@ -652,6 +681,10 @@ ZH_SCREEN = {
     'labyrinth.boss_cleared': '难度通关', 'labyrinth.final_settle': '探索完成',
     'labyrinth.leave_settle': '离开迷宫结算',
     'labyrinth.push_map': '推图副本', 'unknown': '未识别画面',
+    # v2.3.44 天穹/竞技场结算页
+    'tianqiong.victory': '天穹·胜利结算',
+    'tianqiong.failure': '天穹·失败结算',
+    'arena.result': '竞技场·战斗结算',
     # v2.3.37 赛季职业装备
     'season.equip_main': '赛季职业装备主界面',
     'season.equip_class': '职业装备页',

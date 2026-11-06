@@ -238,6 +238,17 @@ NAV_EDGES: Dict[str, List[Tuple[str, str, str]]] = {
         ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
     ],
 
+    # v2.3.44 天穹/竞技场结算页：ESC 退回上层
+    'tianqiong.victory': [
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+    'tianqiong.failure': [
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+    'arena.result': [
+        ('arena.main', 'esc', 'ESC 退回竞技场主界面'),
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
     # v2.3.37 赛季职业装备：ESC 逐层退回（最短路径用）
     'season.equip_main': [
         ('nav.hero_hall', 'esc', 'ESC 退回英雄厅堂'),

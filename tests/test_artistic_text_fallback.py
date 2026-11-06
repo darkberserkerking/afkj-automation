@@ -178,6 +178,59 @@ def won_old(texts):
 check('2d 胜负判定：竖屏（无艺术字）靠副标题判为胜利', won(PORTRAIT_TEXTS))
 check('2e 旧胜负判定在竖屏会误判成失败', not won_old(PORTRAIT_TEXTS))
 
+
+# ══ 6. v2.3.44 跨任务判据撞车（用户 21:17 素材实测）═════════
+#   未注册天穹/竞技场结算判据时，真实截图被别的任务判据吃掉：
+#     天穹/胜利 → labyrinth.victory、天穹/失败 → goddess.victory_result、
+#     竞技场/结算 → labyrinth.victory。
+#   本节锁死：三者各有专用判据，且**删掉艺术字后仍成立**（竖屏也不退化），
+#   同时迷宫/女神界面不被抢判。
+print('\n── 6. 跨任务判据撞车 ──')
+from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY as _REG  # noqa: E402
+
+
+def _detect(texts):
+    return _REG.detect([(0, 0, t, 0.99, 0, 0) for t in texts])
+
+
+# 真实截图 MaaOCR 文本（2026-11-06 21:17 素材）
+TQ_WIN = ['战斗胜利', '击败奖励', '320', '12万', '当前关卡',
+          '第96层', '第94层', '第95层', '第98层', '第99层', '第100层', '下一关']
+TQ_LOSE = ['战斗失败', '推荐提升', '锻造', '英雄装备巨幅提升〉', '其他提升',
+           '提升英雄战力', '领取挂机奖励', '辅助英雄能治疗伤势。', '再次挑战']
+ARENA_RES = ['战斗胜利', '殿堂斗士', '3305会', '4击败奖励', '6150', '44200',
+             '点击空白处关闭', '详情', '回放']
+GODDESS_WIN = ['战斗胜利', '首次通关', '1500', '当前关卡', '58', '59',
+               '57', '60', '再次挑战']
+LAB_SWAP = ['点击空白处关闭']   # 迷宫「成功替换」页实测
+
+WEAK_WORDS = ('战斗胜利', '战斗失败', '挑战成功', '战败')
+
+
+def strip_weak(texts):
+    return [t for t in texts if not any(w in t for w in WEAK_WORDS)]
+
+
+check('6a 天穹胜利 → tianqiong.victory', _detect(TQ_WIN) == 'tianqiong.victory',
+      _detect(TQ_WIN))
+check('6b 天穹胜利删艺术字后仍成立',
+      _detect(strip_weak(TQ_WIN)) == 'tianqiong.victory',
+      _detect(strip_weak(TQ_WIN)))
+check('6c 天穹失败 → tianqiong.failure', _detect(TQ_LOSE) == 'tianqiong.failure',
+      _detect(TQ_LOSE))
+check('6d 天穹失败删艺术字后仍成立',
+      _detect(strip_weak(TQ_LOSE)) == 'tianqiong.failure',
+      _detect(strip_weak(TQ_LOSE)))
+check('6e 竞技场结算 → arena.result', _detect(ARENA_RES) == 'arena.result',
+      _detect(ARENA_RES))
+check('6f 竞技场结算删艺术字后仍成立',
+      _detect(strip_weak(ARENA_RES)) == 'arena.result',
+      _detect(strip_weak(ARENA_RES)))
+check('6g 女神结算不被抢判 → goddess.victory_result',
+      _detect(GODDESS_WIN) == 'goddess.victory_result', _detect(GODDESS_WIN))
+check('6h 迷宫「成功替换」页不被 arena.result 抢判',
+      _detect(LAB_SWAP) != 'arena.result', _detect(LAB_SWAP))
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')

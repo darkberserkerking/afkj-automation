@@ -85,6 +85,10 @@ _SCREEN_LAYER: Dict[str, int] = {
     'labyrinth.door_fallback': 3,
     'home.wishlist': 3,   # v1.9.12：一键家园·愿望单界面
     'home.res_short': 3,  # v1.9.18：资源不足弹窗（材料耗尽获取途径）
+    # v2.3.44 天穹/竞技场结算页（任务内部 3 层）
+    'tianqiong.victory': 3,
+    'tianqiong.failure': 3,
+    'arena.result': 3,
     # v2.3.37 赛季职业装备：主界面 2 层 / 职业页与弹窗 3 层
     'season.equip_main': 2,
     'season.equip_class': 3,
