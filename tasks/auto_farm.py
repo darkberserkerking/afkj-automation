@@ -30,7 +30,7 @@ from task_registry import TaskRegistry, TaskMeta
 # ── 静态元数据 ────────────────────────────────────────────
 task_id = "auto_farm"
 label = "自动推图"
-description = "幻灵/普通交替推图，连败自动换阵容，全部通关后自动结束"
+description = "幻灵/普通交替推图，连败换阵容，通关即止"
 
 # v2.1.18：沙漏收益单轮最多领取次数
 # v2.1.20（用户 15:12「最高可能不止 3」）：这里**不再是 12 的硬顶**——

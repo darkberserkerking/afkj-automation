@@ -28,7 +28,7 @@ from task_registry import TaskRegistry, TaskMeta
 
 task_id = "home"
 label = "一键家园"
-description = "愿望单自动刷单；可勾选消耗体力"
+description = "自动刷愿望单，可勾选消耗体力"
 
 # 愿望单入口按钮模板（templates/ 下，facade 自动解析路径）
 _WISHLIST_BTN_TPL: str = 'btn_home_wishlist.png'

@@ -228,7 +228,7 @@ class CloseGameTask(BaseTask):
 TaskRegistry.register(TaskMeta(
     task_id=StartGameTask.task_id,
     label=StartGameTask.label,
-    description="检测游戏状态：未启动则拉起启动器（路径三级解析，跨环境适配），已启动跳过",
+    description="未启动则拉起游戏，已启动则跳过",
     default_enabled=False,
     icon="🚀",
     group=_GROUP,
@@ -240,7 +240,7 @@ TaskRegistry.register(TaskMeta(
 TaskRegistry.register(TaskMeta(
     task_id=CloseGameTask.task_id,
     label=CloseGameTask.label,
-    description="检测游戏状态：运行中则优雅关闭（WM_CLOSE→强杀兜底），未启动跳过",
+    description="运行中则关闭游戏，未启动则跳过",
     default_enabled=False,
     icon="🛑",
     group=_GROUP,

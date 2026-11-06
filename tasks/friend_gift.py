@@ -28,7 +28,7 @@ from tasks.base import BaseTask
 
 task_id = "friend_gift"
 label = "收赠友情点"
-description = "一键赠礼并收取友情点（收礼进度满即完成）"
+description = "一键赠礼并收取友情点，收满即完成"
 
 _SOCIAL_TPL: str = 'btn_social.png'
 _SOCIAL_THRESHOLD: float = 0.72

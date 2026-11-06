@@ -828,11 +828,19 @@ class App(ctk.CTk):
             )
             _lbl_stat_s.pack(side='left')
             self._stat_labels.append((_lbl_stat_b, _lbl_stat_s))
+        # v2.3.35：描述与结束指标分行——描述统一 ≤22 字可单行完整显示，
+        # 指标独立一行避免被 `_truncate(24)` 连描述一起截断（内容丢失）。
         lbl_sum = ctk.CTkLabel(mid,
                                text=self._truncate(self._instance_summary(inst), 24),
                                font=('Microsoft YaHei UI', 12),
                                text_color=TEXT, anchor='w', height=16)
         lbl_sum.pack(fill='x')
+        _metrics = self._instance_metrics(inst)
+        if _metrics:
+            ctk.CTkLabel(mid, text=_metrics,
+                         font=('Microsoft YaHei UI', 10),
+                         text_color=TEXT_DIM, anchor='w',
+                         wraplength=300).pack(fill='x')
 
         # 状态 pill（六态）
         pill = ctk.CTkLabel(row, text='', font=('Microsoft YaHei UI', 12, 'bold'),
@@ -940,7 +948,7 @@ class App(ctk.CTk):
     def _build_drawer_content(self, drawer, inst):
         """抽屉内容（v1.8.15）：任务说明小字 + 参数表单 + 时间/轮次 + 取消/确定
 
-        - 说明：meta.description 浅灰小字（≤50字，用户要求）
+        - 说明：meta.description 浅灰小字（完整显示，超宽自动换行不裁切）
         - 参数：按 meta.options_schema 渲染（bool→勾选框），初值取
           inst.options（未设置的用 schema default）；确定时写回
           TaskRegistry.set_instance_options 并持久化
@@ -950,10 +958,13 @@ class App(ctk.CTk):
         # ── 任务说明（浅灰小字）─────────────────────────────
         desc = (meta.description if meta else '').strip()
         if desc:
+            # v2.3.35：去掉 desc[:50] 硬截与固定 height=18（会裁掉换行后的
+            # 第二行）；wraplength 必须小于抽屉可用宽度，否则换行不触发、
+            # 长文案溢出被裁（v2.3.2 状态标签同款坑）。
             ctk.CTkLabel(
-                drawer, text=desc[:50],
+                drawer, text=desc,
                 font=('Microsoft YaHei UI', 11),
-                text_color=TEXT_DIM, anchor='w', justify='left', height=18
+                text_color=TEXT_DIM, anchor='w', wraplength=320
             ).pack(fill='x', padx=SPACE_MD, pady=(SPACE_SM, 0))
 
         # ── 参数表单（options_schema → 控件）────────────────
@@ -1253,17 +1264,24 @@ class App(ctk.CTk):
         self._append_log(f'[信息] 已删除任务: {meta.label} ({inst_id})')
 
     def _instance_summary(self, inst) -> str:
-        """实例摘要：类描述 + 结束指标"""
+        """任务说明（任务栏描述行）——只返回类描述，不含结束指标。
+
+        v2.3.35：指标曾以 ` | 时间Xs / 轮次X` 拼进本串，再被
+        `_truncate(...,24)` 一起截断，导致描述与指标双双显示不全。
+        现由 `_instance_metrics()` 独立成行渲染。
+        """
         meta = TaskRegistry.get_by_id(inst.class_id)
-        base = meta.description if meta else ''
-        metrics = []
+        return (meta.description if meta else '') or '未设指标（无限，全通关兜底）'
+
+    @staticmethod
+    def _instance_metrics(inst) -> str:
+        """结束指标小字（时间/轮次），无则空串；独立一行完整显示。"""
+        parts = []
         if inst.max_time:
-            metrics.append(f'时间{inst.max_time}s')
+            parts.append(f'时间 {inst.max_time}s')
         if inst.max_turns:
-            metrics.append(f'轮次{inst.max_turns}')
-        if metrics:
-            return f'{base} | {" / ".join(metrics)}'
-        return base or '未设指标（无限，全通关兜底）'
+            parts.append(f'轮次 {inst.max_turns}')
+        return ' / '.join(parts)
 
     # ── 拖拽排序（实例） ────────────────────────────────────
 

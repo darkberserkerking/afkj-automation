@@ -52,7 +52,7 @@ from task_registry import TaskRegistry, TaskMeta
 
 task_id = "labyrinth"
 label = "异界迷宫"
-description = "自动进入异界迷宫逐层选门战斗，默认15层通关后退出；可勾选挑战至20关深层"
+description = "迷宫逐层选门推进，15层通关，可至20层"
 
 # ── 可滚动区（玩法目录卡片网格）────────────────────────────
 # 比例坐标 (x0, y0, x1, y1)，取自用户真机截图的红框区域。

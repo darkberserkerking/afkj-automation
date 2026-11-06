@@ -27,7 +27,7 @@ from task_registry import TaskMeta, TaskRegistry
 
 task_id = "guild_battle"
 label = "结社战线"
-description = "扫荡 + 循环挑战（通关阵容/一键采用/F）；失败原阵容重试一次"
+description = "自动扫荡并循环挑战，失败重试一次"
 
 # ── 判据 ────────────────────────────────────────────────────
 _STALL_MAX: int = 12          # 未知画面连续帧兜底

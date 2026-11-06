@@ -36,7 +36,7 @@ from tasks.labyrinth import (  # noqa: E402  复用跳过按钮模板
 
 task_id = "dream_realm"
 label = "迷梦之域"
-description = "挑战迷梦之域（F 开战，可循环至次数耗尽）"
+description = "挑战迷梦之域，可循环至次数耗尽"
 
 _STALL_MAX: int = 20        # 未知画面连续上限（× 2s）
 _ROUND_MAX: int = 30        # 单次运行最大轮数（次数上限 10，留余量）

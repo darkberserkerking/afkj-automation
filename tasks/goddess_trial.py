@@ -59,7 +59,7 @@ from task_registry import TaskRegistry, TaskMeta
 
 task_id = "goddess_trial"
 label = "女神试炼"
-description = "进入女神试炼自动挑战至当前上限层，随后扫荡拉满奖励后结束"
+description = "挑战至上限层，扫荡拉满奖励后结束"
 
 # ── 界面判据（MaaOCR 实测 2026-09-04）──────────────────────
 # ── 界面判据（v1.8.25 上收全局注册表 tasks/screen_registry.py，单一真相源）

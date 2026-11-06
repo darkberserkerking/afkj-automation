@@ -39,7 +39,7 @@ from tasks.base import BaseTask
 
 task_id = "daily_quest"
 label = "每日任务"
-description = "一键领取每日任务奖励（含活跃度 100 档活跃奖励）"
+description = "一键领取每日任务与活跃度奖励"
 
 # 「任务」按钮模板（用户裁剪 RGBA；菜单面板内）
 _QUEST_BTN_TPL: str = 'btn_quest.png'

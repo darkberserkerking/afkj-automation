@@ -170,6 +170,22 @@ check('无 ×N 徽章', not any('×' in t for t in _nm), _nm)
 _entries = [w for w in _row1.winfo_children() if isinstance(w, ctk.CTkEntry)]
 check('行内无可编辑名称输入框', len(_entries) == 0, len(_entries))
 
+# v2.3.35：任务栏描述行必须显示完整说明、无 `…` 截断（用户截图问题点）
+_row_descs = {}
+for _iid, _row in app._task_rows.items():
+    _inst = TaskRegistry.get_instance(_iid)
+    _meta = TaskRegistry.get_by_id(_inst.class_id)
+    for _t in names(_iid):
+        if _t == _meta.description:
+            _row_descs[_iid] = _t
+check('v2.3.35 全部任务行显示完整说明（无 … 截断）',
+      len(_row_descs) == len(app._task_rows)
+      and all('…' not in t for t in _row_descs.values()),
+      f'{len(_row_descs)}/{len(app._task_rows)} 行完整')
+check('v2.3.35 任务栏描述与结束指标分行（描述不含「时间/轮次」）',
+      all('时间' not in t and '轮次' not in t for t in _row_descs.values()),
+      str(list(_row_descs.values())[:2]))
+
 
 def _handle_text(inst_id):
     row = app._task_rows[inst_id]['frame']
@@ -274,10 +290,22 @@ app._close_task_drawers()
 app._toggle_drawer('labyrinth#1')
 app.update_idletasks()
 _lab_lbls = drawer_texts(app._drawers['labyrinth#1'])
-check('v1.8.15 迷宫抽屉显示任务说明小字',
-      _lab_meta.description[:50] in _lab_lbls, str(_lab_lbls[:3]))
-check('v1.8.15 迷宫任务说明 ≤50 字',
-      0 < len(_lab_meta.description) <= 50, len(_lab_meta.description))
+check('v2.3.35 迷宫抽屉显示「完整」任务说明（不再 desc[:50] 硬截）',
+      _lab_meta.description in _lab_lbls, str(_lab_lbls[:3]))
+check('v2.3.35 迷宫任务说明 ≤20 字（任务栏单行可完整显示）',
+      0 < len(_lab_meta.description) <= 20, len(_lab_meta.description))
+# v2.3.35：说明 label 必须能换行且 wraplength 小于抽屉可用宽度，
+# 否则长文案换行不触发、直接溢出被裁（v2.3.2 状态标签同款坑）
+_desc_wls = []
+for _w in app._drawers['labyrinth#1'].winfo_children():
+    try:
+        if _w.cget('text') == _lab_meta.description:
+            _desc_wls.append(int(_w._label.cget('wraplength')))
+    except Exception:
+        pass
+check('v2.3.35 说明 label 设了 wraplength（超宽自动换行不裁切）',
+      bool(_desc_wls) and all(0 < w <= 400 for w in _desc_wls),
+      f'wraplength={_desc_wls}')
 check('v1.9.67 迷宫抽屉无「时间（秒）」（已移除）',
       not any('时间（秒）' in t for t in _lab_lbls),
       str([t for t in _lab_lbls if '时间' in t][:2]))
