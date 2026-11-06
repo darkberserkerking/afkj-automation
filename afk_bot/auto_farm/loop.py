@@ -317,22 +317,34 @@ class AFKBotCore:
     def _res_path(self, relative_path: str) -> str:
         """获取资源文件的绝对路径（兼容开发模式和 PyInstaller exe 模式）。
 
-        PyInstaller 打包后，资源文件被解压到 sys._MEIPASS 临时目录。
-        开发模式下，使用当前文件所在目录作为基准路径。
+        **v2.3.45 重大修复（真机 21:09）**：旧实现 `sys._MEIPASS` 直接访问，
+        源码模式下抛 AttributeError 被 except 吞掉，fallback 只 dirname 2 次
+        → 解析到 `afk_bot/templates/`（不存在）→ **源码版所有模板匹配失效**
+        （日志：`模板文件不存在：btn_formation_next.png`）。打包模式因
+        `_MEIPASS` 存在而侥幸正确，所以只在源码版暴露。
+
+        现行范式与 `infra/input.py`、`tasks/labyrinth.py` 一致：
+          frozen → `sys._MEIPASS`（spec datas 解压到此）
+          源码   → 本文件上溯 **3 级** = 项目根（loop.py 在 afk_bot/auto_farm/）
 
         Args:
-            relative_path: 相对路径
+            relative_path: 相对路径（如 'templates/xxx.png'）
 
         Returns:
             str: 绝对路径
         """
-        try:
-            base_path: str = sys._MEIPASS
-        except Exception as _e:
-            self.log(f"[调试] _res_path() 异常已忽略: {_e}")   # v2.1.27 P2-7：留证据
-            # v1.8.49：core.py 已并入 auto_farm/loop.py（原注释过时）
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(base_path, relative_path)
+        if getattr(sys, 'frozen', False):
+            base_path: str = getattr(sys, '_MEIPASS', '') or os.path.dirname(
+                os.path.abspath(sys.executable))
+        else:
+            # afk_bot/auto_farm/loop.py → auto_farm → afk_bot → 项目根
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))
+        resolved: str = os.path.join(base_path, relative_path)
+        # 诊断：命中/未命中都留证据，避免同类问题再次静默（v2.3.45）
+        if not os.path.exists(resolved):
+            self.log(f"[警告] 资源不存在: {resolved}（relative={relative_path}）")
+        return resolved
 
     # ── 配置加载 ──────────────────────────────────────────────
 
