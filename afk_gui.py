@@ -828,7 +828,7 @@ class App(ctk.CTk):
             )
             _lbl_stat_s.pack(side='left')
             self._stat_labels.append((_lbl_stat_b, _lbl_stat_s))
-        # v2.3.35：描述与结束指标分行——描述统一 ≤22 字可单行完整显示，
+        # v2.3.35：描述与结束指标分行——描述统一 ≤20 字可单行完整显示，
         # 指标独立一行避免被 `_truncate(24)` 连描述一起截断（内容丢失）。
         lbl_sum = ctk.CTkLabel(mid,
                                text=self._truncate(self._instance_summary(inst), 24),
