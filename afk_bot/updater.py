@@ -201,7 +201,15 @@ def _LOGGER_INFO(msg: str) -> None:
 
 
 def _diag_path() -> str:
-    """网络诊断日志路径（%TEMP%/afkj_net_diag.log）。"""
+    """网络诊断日志路径（默认 %TEMP%/afkj_net_diag.log）。
+
+    v2.3.51：支持 `AFKJ_NET_DIAG_PATH` 环境变量覆盖 —— **单元测试必须用它**
+    指向独立文件，否则会污染用户的真实诊断日志（本项目已踩过：用户拿到的
+    「诊断日志」其实是测试残留，`frozen=False` + 假域名 + 空端口表）。
+    """
+    env = os.environ.get('AFKJ_NET_DIAG_PATH', '').strip()
+    if env:
+        return env
     try:
         import tempfile
         return os.path.join(tempfile.gettempdir(), 'afkj_net_diag.log')

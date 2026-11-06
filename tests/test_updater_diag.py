@@ -47,7 +47,10 @@ import os as _os
 _old_api = U.API_LATEST
 _old_ports = U._LOCAL_PROXY_PORTS
 _old_cache = U._LOCAL_PROXY_CACHE
-_diag_log = U._diag_path()
+# v2.3.51：**必须**用独立日志文件，否则会覆盖/删除用户的真实诊断日志
+import tempfile as _tf
+_diag_log = _os.path.join(_tf.gettempdir(), 'afkj_net_diag_selftest.log')
+_os.environ['AFKJ_NET_DIAG_PATH'] = _diag_log
 try:
     for _k in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
                'http_proxy', 'https_proxy', 'all_proxy'):
@@ -82,6 +85,12 @@ finally:
     U.API_LATEST = _old_api
     U._LOCAL_PROXY_PORTS = _old_ports
     U._LOCAL_PROXY_CACHE = _old_cache
+    _os.environ.pop('AFKJ_NET_DIAG_PATH', None)
+    try:
+        if _os.path.isfile(_diag_log):
+            _os.remove(_diag_log)      # 只删自测文件
+    except OSError:
+        pass
 
 print('\n' + '=' * 56)
 if FAILED:
