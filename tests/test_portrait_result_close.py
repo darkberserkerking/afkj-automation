@@ -164,6 +164,36 @@ check('4a 优先点独立「挑战」而非幻灵挑战',
       any(c[3] == '挑战' for c in clicks4), str(clicks4[:2]))
 check('4b 横屏仍 return True', res4 is True, str(res4))
 
+
+# ══ 5. v2.3.42 真因回归：竖屏读不出艺术字「战斗胜利」 ═════════
+#   用户 20:58 提供同画面横竖屏两张对照截图，项目 MaaOCR 实测：
+#     横屏 1279x1029「战斗胜利」conf 0.96（0.3/0.1/0.0 均命中）
+#     竖屏 757x1367「战斗胜利」三档阈值全部 0 命中
+#   旧代码「胜利结算界面」分支只认「战斗胜利」→ 竖屏不命中 →
+#   掉到「已回到挂机关卡」（用「幻灵挑战」判定）→ 假成功。
+print('\n── 5. 竖屏缺艺术字不得掉进假成功 ──')
+
+# 5a 竖屏真实 OCR 形态：无「战斗胜利」，有「挂机收益提升」+「幻灵挑战」
+res5, inp5, logs5 = run(PORTRAIT_RESULT)
+check('5a 读不出艺术字时仍优先点「幻灵挑战」（而非假成功）',
+      any(c[3] == '幻灵挑战' for c in inp5.clicks if c[0] == 'click_at'),
+      str(inp5.clicks[:2]))
+check('5b 不得出现「已回到挂机关卡」假成功',
+      not any('已回到挂机关卡' in l for l in logs5),
+      str([l for l in logs5 if '回到' in l]))
+
+# 5c 有副标题但无按钮（且无幻灵挑战）→ 应走「点空白」，不是直接 return
+RESULT_SUBTITLE_ONLY = [
+    it(862, 376, '挂机收益提升'),
+    it(918, 125, '赛季挂机进度'),
+    it(1026, 484, '最高等级 800级'),
+]
+res5c, inp5c, logs5c = run(RESULT_SUBTITLE_ONLY)
+check('5c 只有副标题 → 走点空白（结算分支已认副标题兜底）',
+      any(c[0] == 'ratio_dual' for c in inp5c.clicks),
+      str(inp5c.clicks[:2]))
+check('5d 同理不得假成功', res5c is False, str(res5c))
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')

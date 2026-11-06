@@ -330,10 +330,10 @@ class BattleMonitor:
                         ):
                             pos, btn_text = (_cx, _cy), _t
                             break
-                    # v2.3.41（真机竖屏 750x1334）：结算页底部只有
-                    # 「幻灵挑战」横幅（用户确认点它回备战界面），没有
-                    # 独立「挑战」按钮 → 旧条件 `'幻灵' not in _t` 把它
-                    # 排除，白走到「未找到按钮」再点空白（全屏页点空白无效）。
+                    # v2.3.41（真机竖屏 750x1334）：结算页底部是
+                    # 「幻灵挑战」横幅（用户确认点它回备战界面），横竖屏
+                    # 元素一致、都没有独立「挑战」按钮 → 旧条件
+                    # `'幻灵' not in _t` 把它排除，白走到「未找到按钮」。
                     if pos is None:
                         for _cy, _cx, _t, _c, *_rest in items:
                             if _c >= 0.5 and '幻灵挑战' in _t:
@@ -355,8 +355,21 @@ class BattleMonitor:
                         '未找到按钮，走关闭逻辑'
                     )
 
-            # 胜利结算界面
-            if any('战斗胜利' in t for t in texts):
+            # 结算页特征词（v2.3.42 实测校正）
+            # 竖屏下艺术字「战斗胜利」OCR 完全读不出（横屏 conf .96；
+            # 竖屏 threshold 0.3/0.1/0.0 三档全 0 命中），故结算页判定
+            # 不能只认艺术字——沿用 manual 分支已有的副标题兜底。
+            _result_marks: Tuple[str, ...] = (
+                '挂机收益提升',      # 结算页特有副标题（横竖屏均 conf .99）
+                '战斗胜利',          # 艺术字：横屏可读，竖屏读不出
+                '赛季挂机进度',      # 结算页数据条标题（横竖屏均 conf .99）
+            )
+            _on_result_page: bool = any(
+                k in t for k in _result_marks for t in texts
+            )
+
+            # 胜利结算界面（含读不出艺术字的竖屏）
+            if _on_result_page:
                 self._log('[信息] 胜利结算界面，关闭弹窗')
                 self._input.click_ratio_dual(
                     (0.5, 0.75), (0.5, 0.88), label='空白处'
@@ -365,18 +378,10 @@ class BattleMonitor:
                 continue
 
             # 已回到挂机关卡页
-            # v2.3.41（真机竖屏）：结算页底部也有「幻灵挑战」横幅 →
-            # 单靠该词判「已回挂机关卡」每轮都假成功 return True，
-            # 主循环再判 result → 死循环 42 轮（20:31 现场）。
-            # 必须排除结算页特征词后才认。
-            _result_marks: Tuple[str, ...] = (
-                '挂机收益提升',      # 结算页特有副标题（实测 conf .99）
-                '战斗胜利',
-                '赛季挂机进度',
-            )
-            _on_result_page: bool = any(
-                k in t for k in _result_marks for t in texts
-            )
+            # v2.3.41~42（真机竖屏 20:31 现场）：结算页底部有「幻灵挑战」
+            # 横幅，若只认该词判「已回挂机关卡」会每轮假成功 return True，
+            # 主循环再判 result → 死循环 42 轮。**必须确认不在结算页**。
+            # 注意 _on_result_page 已在上面算好（含竖屏读不出艺术字的兜底）。
             if not _on_result_page and (
                 any('幻灵挑战' in t for t in texts)
                 or any(t == '挑战' for t in texts)
