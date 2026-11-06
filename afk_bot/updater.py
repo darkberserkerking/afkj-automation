@@ -200,11 +200,46 @@ def _LOGGER_INFO(msg: str) -> None:
     return
 
 
+def _diag_path() -> str:
+    """网络诊断日志路径（%TEMP%/afkj_net_diag.log）。"""
+    try:
+        import tempfile
+        return os.path.join(tempfile.gettempdir(), 'afkj_net_diag.log')
+    except Exception:
+        return 'afkj_net_diag.log'
+
+
+def _diag(msg: str) -> None:
+    """追加一行网络诊断（**失败不抛异常**，最好努力）。
+
+    v2.3.50：用户点「检查更新」后，把该文件发来即可定位
+    「到底试了哪些路径、各自什么错」——不用再猜。
+    """
+    try:
+        path = _diag_path()
+        # 超过 256KB 时截断重写，避免无限增长
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 262144:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write('[diag] rotated\n')
+        except Exception:
+            pass
+        _ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(f'[{_ts}] {msg}\n')
+    except Exception:
+        pass
+
+
 # ── v2.3.49：本机代理探测 ────────────────────────────────────
 # 用户双击 exe 不会继承命令行里的 HTTP(S)_PROXY，只能直连 → GitHub 常失败。
 # 这里主动探测常见本地代理端口，命中则用它发请求（仅本机回环，不经外部服务）。
 _LOCAL_PROXY_PORTS: Tuple[int, ...] = (
-    7890, 7897, 10809, 1080, 2600, 10031, 8080, 8888,
+    # 常见代理软件默认端口（Clash / Clash Verge / V2RayN / SS / 其它）
+    7890, 7897, 10809, 1080, 10808, 20171, 7891, 7892,
+    7898, 10801, 2080, 2600, 10031, 9910,
+    # web 服务常用端口（放后面，避免抢占优先级）
+    8080, 8888, 8889,
 )
 _LOCAL_PROXY_CACHE: Optional[List[int]] = None
 _LOCAL_PROXY_TTL: float = 0.0          # 缓存时间戳（60s 内不重复探测）
@@ -257,43 +292,62 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
         _SSL_CTX = _ssl_context()
 
     attempts: List[str] = []
+    timing: List[str] = []
     last_exc: Optional[BaseException] = None
 
     def _try(tag: str, opener) -> Optional[bytes]:
         nonlocal last_exc
         req = urllib.request.Request(url, headers=_headers(token))
+        _t0 = time.time()
         try:
             with opener.open(req, timeout=timeout) as resp:
+                _dt = time.time() - _t0
+                timing.append(f'{tag}=OK({_dt:.2f}s)')
+                _diag(f'  {tag}: OK {_dt:.2f}s')
                 return resp.read()
         except Exception as e:                             # noqa: BLE001
+            _dt = time.time() - _t0
             attempts.append(f'{tag}({type(e).__name__})')
+            timing.append(f'{tag}={type(e).__name__}({_dt:.2f}s)')
+            _diag(f'  {tag}: FAIL {type(e).__name__} ({_dt:.2f}s) {e}')
             last_exc = e
             return None
+
+    _diag(f'--- check_update start | frozen={getattr(sys, "frozen", False)} '
+          f'| timeout={timeout}s ---')
+    _diag(f'  env proxy: {urllib.request.getproxies()}')
 
     # ① 系统证书/环境变量代理（urllib 默认）
     got = _try('系统代理', _build_opener(None))
     if got is not None:
+        _diag('--- OK via 系统代理 ---')
         return got
 
     # ② 直连
     got = _try('直连', _build_opener({}))
     if got is not None:
+        _diag('--- OK via 直连 ---')
         return got
 
     # ③ 本机探测到的代理端口
-    for port in _probe_local_proxies():
+    ports = _probe_local_proxies()
+    _diag(f'  probed local proxy ports: {ports or "无"}')
+    for port in ports:
         proxy = f'http://127.0.0.1:{port}'
         got = _try(f'本地代理:{port}',
                    _build_opener({'http': proxy, 'https': proxy}))
         if got is not None:
             _LOGGER_INFO(f'检查更新：经本机代理 {port} 成功')
+            _diag(f'--- OK via 本地代理 {port} ---')
             return got
 
-    # 全部失败 → 抛出带诊断的异常
+    _diag(f'--- ALL FAILED | {timing} ---')
+    # 全部失败 → 抛出带诊断的异常（含日志路径，便于用户反馈）
     raise UpdateError(
         '检查更新失败：无法连接 GitHub（已尝试：'
         + '、'.join(attempts) + '）。'
-        + _friendly_net_hint(last_exc))
+        + _friendly_net_hint(last_exc)
+        + f'｜诊断日志：{_diag_path()}')
 
 
 # ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────
@@ -371,6 +425,12 @@ def check_latest(
                 return _fetch(API_LATEST, tok, timeout)
             except urllib.error.HTTPError:
                 raise                      # 交给外层按状态码处理
+            except UpdateError:
+                # v2.3.50：`_default_fetch` 已把所有路径试完并带上
+                # 「已尝试：…」诊断 —— 直接透传，**不要**重试也不要
+                # 再经 `_friendly_net_hint` 包装（否则诊断被覆盖，
+                # 真机只看到笼统的「网络连接被中断」）。
+                raise
             except Exception as e:         # noqa: BLE001
                 last_exc = e
                 if (attempt < _NET_RETRY_TIMES

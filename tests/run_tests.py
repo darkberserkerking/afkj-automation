@@ -47,6 +47,7 @@ SUITES = {
     'tests/test_chest_region.py': ({1, 2, 3}, False),
     'tests/test_switch_btn_region.py': ({1, 2, 3}, False),
     'tests/test_updater_net_retry.py': ({1, 2, 3}, False),
+    'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
