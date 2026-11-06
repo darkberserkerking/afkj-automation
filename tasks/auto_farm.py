@@ -147,18 +147,34 @@ class AutoFarmTask(BaseTask):
             return bool(re.fullmatch(r"\d{1,2}:\d{2}:\d{2}", _t)
                         or re.fullmatch(r"\d{1,2}:\d{2}", _t))
 
+        # v2.3.46（真机竖屏 750x1334 修复）：归一化分母必须用**真实客户区尺寸**。
+        # 旧实现写死 1280/1024 → 竖屏倒计时 (376,1044) 算出 x/1280=0.294、
+        # y/1024=1.019，两个区域条件全不满足 → 宝箱漏检（连候选日志都被过滤掉）。
+        # 实测归一化位置横竖屏一致（横屏 rx.500/ry.784，竖屏 rx.499/ry.781），
+        # 故只需换分母，区域阈值不变即可同时覆盖横竖屏。
+        _img_w: int = 1280
+        _img_h: int = 1024
+        try:
+            _wl, _wt, _ww, _wh = self.bot.window_rect()
+            if _ww > 0 and _wh > 0:
+                _img_w, _img_h = int(_ww), int(_wh)
+            else:
+                self.log("[调试] window_rect 尺寸无效，宝箱区域按 1280x1024 兜底")
+        except Exception as _e:                            # noqa: BLE001
+            self.log(f"[调试] 宝箱区域取窗口尺寸失败，按 1280x1024 兜底: {_e}")
+
         chest = next(
             ((it[1], it[0]) for it in items
              if len(it) >= 4 and it[3] >= 0.8
              and _time_like(it[2])
-             and 0.35 < it[1] / 1280.0 < 0.65
-             and 0.65 < it[0] / 1024.0 < 0.95), None)
+             and 0.35 < it[1] / _img_w < 0.65
+             and 0.65 < it[0] / _img_h < 0.95), None)
         if not chest:
             _cands = [(it[2], int(it[1]), int(it[0]), round(float(it[3]), 2))
                       for it in items
                       if len(it) >= 4 and it[3] >= 0.5
-                      and 0.20 < it[1] / 1280.0 < 0.80
-                      and 0.50 < it[0] / 1024.0 < 1.00]
+                      and 0.20 < it[1] / _img_w < 0.80
+                      and 0.50 < it[0] / _img_h < 1.00]
             self.log("[信息] 未找到挂机收益宝箱 → 跳过领取"
                      f"｜宝箱区候选[{len(_cands)}]="
                      f"{_cands[:6] if _cands else '无'}")
@@ -191,8 +207,9 @@ class AutoFarmTask(BaseTask):
             if _hg_y is not None:
                 self.log(f"[警告] 沙漏模板命中位置异常 图像y={_hg_y}，"
                          f"与宝箱不同排，退回比例偏移")
+            # v2.3.46：偏移量同样按真实高度取（竖屏高度远大于 1024）
             chest_click = (chest[0],
-                           max(0, chest[1] - int(0.060 * 1024)))
+                           max(0, chest[1] - int(0.060 * _img_h)))
         self.log(f"[点击] 挂机收益宝箱 | 时间={chest} 点击={chest_click}")
         self.bot.click_at(chest_click[0], chest_click[1], '挂机_宝箱')
         self._sleep(1.5)
@@ -251,8 +268,11 @@ class AutoFarmTask(BaseTask):
                 if len(it) < 4 or it[3] < _HG_CONF_MIN:
                     continue
                 # v2.2.13：窗口放宽 + 抽成常量（见 _HG_REGION_* 处的实测依据）
-                if not (_HG_REGION_RX_MIN < it[1] / 1280.0
-                        and _HG_REGION_RY_MIN < it[0] / 1024.0
+                # v2.3.46：分母用真实客户区尺寸（竖屏 750x1334 下
+                # 旧分母把右下沙漏 x/1280 压到 0.52、y/1024 溢出到 1.00
+                # → 整套沙漏读数失效；归一化位置横竖屏一致，阈值不变）
+                if not (_HG_REGION_RX_MIN < it[1] / _img_w
+                        and _HG_REGION_RY_MIN < it[0] / _img_h
                         < _HG_REGION_RY_MAX):
                     continue
                 _t: str = it[2].strip()
@@ -336,7 +356,7 @@ class AutoFarmTask(BaseTask):
             _diag = [(it[2], int(it[1]), int(it[0]), round(float(it[3]), 2))
                      for it in self.bot._ocr_screen(no_cache=True)
                      if len(it) >= 4 and it[3] >= 0.5
-                     and it[1] / 1280.0 > 0.6 and it[0] / 1024.0 > 0.5]
+                     and it[1] / _img_w > 0.6 and it[0] / _img_h > 0.5]
             self.log(f"[信息] 未检测到沙漏剩余次数（xN），本轮不做沙漏领取"
                      f"｜右下区候选={_diag if _diag else '无'}")
             return
@@ -469,12 +489,12 @@ class AutoFarmTask(BaseTask):
             # 更小值时才更新，并不代表这次读到的实际值。
             _xn2, _prices2 = _hg_candidates()
             _cands_txt = ('; '.join(
-                f'{txt}(rx={cx / 1280:.2f},ry={cy / 1024:.2f},'
+                f'{txt}(rx={cx / _img_w:.2f},ry={cy / _img_h:.2f},'
                 f'conf={cf:.2f})' for _v, cx, cy, cf, txt in _xn2)
                 if _xn2 else '无')
             if _prices2:
                 _cands_txt += ('｜钻石定价=' + '; '.join(
-                    f'{txt}(rx={cx / 1280:.2f},ry={cy / 1024:.2f})'
+                    f'{txt}(rx={cx / _img_w:.2f},ry={cy / _img_h:.2f})'
                     for _v, cx, cy, _cf, txt in _prices2))
             self.log(f"[警告] 第 {clicks} 次点击未被结算"
                      f"（读数未递减，记录 x{remaining}），等待 "
