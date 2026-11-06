@@ -1363,8 +1363,13 @@ class AFKBotCore:
                     # v2.3.20：这条路径直接关结算后 continue，绕过了
                     # phase=='battle' 的计数点 → total_battles/stage_progress
                     # 双双漏计（真机 5 场只显示 2 次）。此处当场补记。
+                    # v2.3.43（P0 审计）：艺术字「战斗胜利」竖屏读不出
+                    # （同页横屏 conf .96 / 竖屏 0 命中）→ 只认它会把胜利
+                    # 记成失败。补「挂机收益提升」——胜利结算独有副标题，
+                    # 横竖屏实测均 conf .99。
                     _won: bool = any(
                         ('战斗胜利' in _s) or ('胜利' in _s)
+                        or ('挂机收益提升' in _s)
                         for _s in _rs_texts
                     )
                     self._credit_battle(_won, current_mode,

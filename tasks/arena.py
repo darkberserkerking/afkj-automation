@@ -198,9 +198,22 @@ class ArenaTask(BaseTask):
             items = self.bot._ocr_screen()
             texts = self._texts(items)
 
-            # ① 结算页（战斗胜利/失败 + 点击空白处关闭）→ 关闭
-            if (any('战斗胜利' in t or '战斗失败' in t for t in texts)
-                    and any('点击空白处关闭' in t for t in texts)):
+            # ① 结算页 → 关闭
+            # v2.3.43（P0 审计）：艺术字「战斗胜利/失败」横屏可读、**竖屏
+            # 常常完全读不出**（实测同页横屏 conf .96 / 竖屏 0 命中）。
+            # 结算页判据改为**三路兜底**（任一成立即可）：
+            #   ① 结算层提示语/按钮（OCR 稳定）
+            #   ② 胜利结算副标题「挂机收益提升」（横竖屏 conf .99）
+            #   ③ 艺术字（横屏兜底，仅作补充）
+            _RESULT_TEXT_WORDS: Tuple[str, ...] = (
+                '点击空白处关闭', '点击空白处继续', '点击关闭',
+                '再次挑战', '继续挑战', '挂机收益提升',
+            )
+            _is_result: bool = (
+                any(kw in t for kw in _RESULT_TEXT_WORDS for t in texts)
+                or any('战斗胜利' in t or '战斗失败' in t for t in texts)
+            )
+            if _is_result:
                 self.log("[信息] 战斗结算，点击空白关闭")
                 self.dismiss_blink_popup(items)
                 self._sleep(2.0)     # 回主界面

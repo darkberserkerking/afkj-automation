@@ -230,7 +230,11 @@ class BattleMonitor:
                     self._log(f'[结果] 战斗失败')
                     return 'defeat'
                 if has_close:
-                    if any('胜利' in t for t in texts):
+                    # v2.3.43（P0 审计）：艺术字竖屏读不出 → 胜利证据补
+                    # 「挂机收益提升」副标题（横竖屏均 conf .99）。失败侧
+                    # 已有 has_retry（「再次挑战」按钮）兜底，无需再加。
+                    if any('胜利' in t or '挂机收益提升' in t
+                           for t in texts):
                         self._log(
                             f'[结果] 战斗胜利（结算）'
                         )

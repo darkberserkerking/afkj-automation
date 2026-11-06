@@ -42,6 +42,7 @@ SUITES = {
     'tests/test_task_description_consistency.py': ({1, 2, 3}, False),  # 全量文案一致性
     'tests/test_season_equipment_dryrun.py': ({1, 2, 3}, False),
     'tests/test_portrait_result_close.py': ({1, 2, 3}, False),
+    'tests/test_artistic_text_fallback.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
@@ -172,6 +173,8 @@ CHANGE_MAP = [
     ('tasks/catalog.py', ['tests/test_task_scheduler_smoke.py',
                           'tests/test_gui_drawer_smoke.py',
                           'tests/test_task_description_consistency.py']),
+    # v2.3.43 P0 艺术字兜底审计
+    ('tasks/arena.py', ['tests/test_artistic_text_fallback.py']),
     # v2.3.41 竖屏结算死循环
     ('afk_bot/auto_farm/battle.py',
      ['tests/test_portrait_result_close.py',
