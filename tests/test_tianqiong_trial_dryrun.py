@@ -25,7 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests import fast_time  # noqa: E402
 fast_time.install()
 
-from tasks.tianqiong_trial import TianqiongTrialTask  # noqa: E402
+from tasks.tianqiong_trial import (  # noqa: E402
+    TianqiongTrialTask, description as TQ_DESC,
+)
 
 # ── 结果收集 ────────────────────────────────────────────────
 _PASS: list = []
@@ -325,6 +327,17 @@ t7, _ = _make_task([TOWER_LIST], options={'max_battles': 0})
 check('7a max_battles=0 → summary 正常', t7.summary() == '自动打当天开放的天穹塔',
       t7.summary())
 check('7b summary ≤14 字', len(t7.summary()) <= 14, t7.summary())
+
+# ── 7c~7e：任务栏文案（GUI `_instance_summary` 直接取 meta.description）──
+# 用户 2026-11-06 要求：只说核心功能、保留必要信息、不写实现/运行逻辑、
+# 长度控制在任务栏内完整显示（对照「竞技场」24 字可完整显示）。
+check('7c description ≤24 字（任务栏内可完整显示）',
+      len(TQ_DESC) <= 24, f'{len(TQ_DESC)} 字: {TQ_DESC}')
+check('7d 必要信息完整（当日开放 / 失败换阵 / 全部完成）',
+      all(k in TQ_DESC for k in ('当日开放', '失败', '全部完成')), TQ_DESC)
+_impl_kws = ('出发！', '挑战！', '通关阵容', '一键采用', '→', '模板', 'OCR', '/F')
+check('7e 不含实现细节与操作步骤',
+      not any(k in TQ_DESC for k in _impl_kws), TQ_DESC)
 
 # ═══════════════════════════════════════════════════════════
 #  8. 点击无效（画面永不变化）→ 不得无限重试

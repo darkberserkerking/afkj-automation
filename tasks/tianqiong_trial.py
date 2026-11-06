@@ -36,7 +36,9 @@ from task_registry import TaskMeta, TaskRegistry
 
 task_id = "tianqiong_trial"
 label = "天穹试炼"
-description = "四塔轮换：塔列表「出发！」→ 塔内「挑战！」→ 通关阵容/一键采用/F"
+# 任务栏文案（GUI `_instance_summary` 直接取 meta.description，宽度约 24 字）：
+# 只说「做什么」，不写操作步骤/实现细节，避免被截断。
+description = "自动挑战当日开放塔，失败换阵容，全部完成即止"
 
 # ── 判据常量（全部来自真机截图 OCR）───────────────────────────
 _CARD_TEXT: str = '天穹试炼'          # 玩法目录卡片（完整四字，避开「女神试炼」）
