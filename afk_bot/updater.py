@@ -200,21 +200,58 @@ def _LOGGER_INFO(msg: str) -> None:
     return
 
 
-def _diag_path() -> str:
-    """网络诊断日志路径（默认 %TEMP%/afkj_net_diag.log）。
+_DIAG_PATH_CACHE: Optional[str] = None
 
-    v2.3.51：支持 `AFKJ_NET_DIAG_PATH` 环境变量覆盖 —— **单元测试必须用它**
-    指向独立文件，否则会污染用户的真实诊断日志（本项目已踩过：用户拿到的
-    「诊断日志」其实是测试残留，`frozen=False` + 假域名 + 空端口表）。
+
+def _diag_candidates() -> List[str]:
+    """诊断日志候选路径（按用户可发现性排序）。"""
+    cands: List[str] = []
+    try:
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cands.append(os.path.join(base, 'afkj_net_diag.log'))
+    except Exception:
+        pass
+    try:
+        import tempfile
+        cands.append(os.path.join(tempfile.gettempdir(), 'afkj_net_diag.log'))
+    except Exception:
+        pass
+    try:
+        cands.append(os.path.abspath('afkj_net_diag.log'))
+    except Exception:
+        pass
+    return cands
+
+
+def _diag_path() -> str:
+    """返回**实际可写**的诊断日志路径（缓存；多路径兜底）。
+
+    v2.3.52（真机 00:02）：v2.3.51 固定用 `%TEMP%`，用户报告该文件
+    **根本不存在**（Windows「找不到文件」）—— 说明该路径在某环境写不进。
+    改为按 exe 同目录 → %TEMP% → CWD 逐个探测，返回第一个可写者，
+    错误提示里显示的就是**真实**路径。
+
+    `AFKJ_NET_DIAG_PATH` 环境变量仍优先（单元测试必须用它隔离）。
     """
+    global _DIAG_PATH_CACHE
     env = os.environ.get('AFKJ_NET_DIAG_PATH', '').strip()
     if env:
         return env
-    try:
-        import tempfile
-        return os.path.join(tempfile.gettempdir(), 'afkj_net_diag.log')
-    except Exception:
-        return 'afkj_net_diag.log'
+    if _DIAG_PATH_CACHE:
+        return _DIAG_PATH_CACHE
+    for cand in _diag_candidates():
+        try:
+            with open(cand, 'a', encoding='utf-8'):
+                pass
+            _DIAG_PATH_CACHE = cand
+            return cand
+        except Exception:
+            continue
+    # 全都不行：返回第一个候选名（仅用于展示）
+    return _diag_candidates()[0] if _diag_candidates() else 'afkj_net_diag.log'
 
 
 def _diag(msg: str) -> None:
@@ -296,8 +333,13 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
     本函数让 exe 也能用上本机代理（只探回环端口，不经过外部服务）。
     """
     global _SSL_CTX
-    if _SSL_CTX is None:
-        _SSL_CTX = _ssl_context()
+    _diag(f'--- check_update start | frozen={getattr(sys, "frozen", False)} '
+          f'| timeout={timeout}s ---')
+    try:
+        if _SSL_CTX is None:
+            _SSL_CTX = _ssl_context()
+    except Exception as _e:                                # noqa: BLE001
+        _diag(f'  SSL ctx FAIL: {type(_e).__name__}: {_e}')
 
     attempts: List[str] = []
     timing: List[str] = []
@@ -321,9 +363,10 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
             last_exc = e
             return None
 
-    _diag(f'--- check_update start | frozen={getattr(sys, "frozen", False)} '
-          f'| timeout={timeout}s ---')
-    _diag(f'  env proxy: {urllib.request.getproxies()}')
+    try:
+        _diag(f'  env proxy: {urllib.request.getproxies()}')
+    except Exception as _e:                                # noqa: BLE001
+        _diag(f'  env proxy FAIL: {type(_e).__name__}: {_e}')
 
     # ① 系统证书/环境变量代理（urllib 默认）
     got = _try('系统代理', _build_opener(None))
@@ -337,8 +380,12 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
         _diag('--- OK via 直连 ---')
         return got
 
-    # ③ 本机探测到的代理端口
-    ports = _probe_local_proxies()
+    # ③ 本机探测到的代理端口（探测本身失败也不中断）
+    try:
+        ports = _probe_local_proxies()
+    except Exception as _e:                                # noqa: BLE001
+        ports = []
+        _diag(f'  probe FAIL: {type(_e).__name__}: {_e}')
     _diag(f'  probed local proxy ports: {ports or "无"}')
     for port in ports:
         proxy = f'http://127.0.0.1:{port}'
@@ -350,12 +397,16 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
             return got
 
     _diag(f'--- ALL FAILED | {timing} ---')
-    # 全部失败 → 抛出带诊断的异常（含日志路径，便于用户反馈）
+    # 全部失败 → 异常消息**内联全部诊断**（不依赖日志文件能否写成）
+    _hint = _friendly_net_hint(last_exc)
+    if '已尝试' in _hint:          # 防已被包装过（双保险）
+        raise UpdateError(_hint)
     raise UpdateError(
-        '检查更新失败：无法连接 GitHub（已尝试：'
-        + '、'.join(attempts) + '）。'
-        + _friendly_net_hint(last_exc)
-        + f'｜诊断日志：{_diag_path()}')
+        '检查更新失败：无法连接 GitHub'
+        f'｜已尝试：{"、".join(attempts) or "无"}'
+        f'｜探测端口：{ports or "无"}'
+        f'｜{_hint}'
+        f'｜诊断日志：{_diag_path()}')
 
 
 # ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────
@@ -390,6 +441,10 @@ def _friendly_net_hint(exc: Optional[BaseException]) -> str:
     """把底层 SSL/网络异常翻译成用户可操作的中文提示。"""
     if exc is None:
         return '未获得响应，请重试'
+    _raw = str(exc)
+    if '已尝试' in _raw:
+        # 已是 `_default_fetch` 拼好的完整诊断（含路径/端口/原因）→ 原样返回
+        return _raw
     text: str = f'{type(exc).__name__}: {exc}'.lower()
     if 'not_enough_data' in text or ('asn1' in text and '_ssl' in text):
         return ('网络连接被中断（TLS 握手未完成）。常见于直连 GitHub 不稳定：'
