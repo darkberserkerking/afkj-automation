@@ -30,6 +30,15 @@
   · 纯图案的 6 个职业圆形图标 → 模板匹配（底部 tab 无文字，
     OCR 全无输出，必须用模板）；模板为 RGBA 圆外透明 + maskedNCC
 
+【OCR 缓存铁律（v2.3.38 真机修复）】
+  · 本任务的判据完全依赖「某张卡下方『锻造』按钮是否消失」这种
+    **小面积画面变化**；而 screen.py 的 OCR 缓存键是 20 点稀疏指纹，
+    采不到单张卡区域 → 60s TTL 内一直返回锻造前的旧 items → 反复
+    点击已消失的按钮（真机 16:59 连点 (770,797) 8 次后 failed）。
+  · 故本任务所有 `_ocr_screen()` 一律 `no_cache=True`；
+    新增调用点必须同样处理，见 tests/test_season_equipment_dryrun.py
+    的源码静态断言。
+
 【护栏】
   · check_stop 每轮即时响应
   · 连续未知帧上限 / 单职业点击无进展上限 / 全局点击硬上限
@@ -129,7 +138,7 @@ class SeasonEquipmentTask(BaseTask):
 
     def startup_probe(self) -> str:
         """三态契约：已在装备链路 → ready；其余 clear（交给 _goto_entry）。"""
-        items = self.bot._ocr_screen()
+        items = self.bot._ocr_screen(no_cache=True)
         texts = self._texts(items, 0.6)
         if self._is_in_equip_flow(texts):
             self.log("[信息] 启动即在赛季装备链路，就地续跑")
@@ -158,7 +167,7 @@ class SeasonEquipmentTask(BaseTask):
 
     def _goto_entry(self) -> bool:
         """自动导航：已在英雄厅堂则直达；否则回 1 层 → 英雄厅堂 → 赛季装备。"""
-        first = self.bot._ocr_screen()
+        first = self.bot._ocr_screen(no_cache=True)
         first_blob = ' '.join(self._texts(first, 0.6))
         need_nav = not (_W_HERO_HALL in first_blob and _W_ENTRY in first_blob)
         if need_nav:
@@ -171,7 +180,7 @@ class SeasonEquipmentTask(BaseTask):
         for _ in range(4):
             if self.check_stop():
                 return False
-            items = self.bot._ocr_screen()
+            items = self.bot._ocr_screen(no_cache=True)
             texts = self._texts(items, 0.6)
             blob = ' '.join(texts)
             if all(k in blob for k in _W_MAIN):
@@ -204,16 +213,18 @@ class SeasonEquipmentTask(BaseTask):
         done_classes: set = set()
         cur_class: Optional[str] = None
         no_progress = 0
+        last_forge_pos: Optional[Tuple[int, int]] = None
 
         while True:
             if self.check_stop():
                 return self._stop_result()
             if clicks >= _CLICK_HARD_MAX:
                 self.log(f"[错误] 点击硬上限 {_CLICK_HARD_MAX} 次，"
-                         "判卡住（可能资源不足或动画异常）")
+                         "判卡住（可能资源不足或动画异常）"
+                         f" | 末次锻造点击={last_forge_pos}")
                 return 'failed'
 
-            items = self.bot._ocr_screen()
+            items = self.bot._ocr_screen(no_cache=True)
             texts = self._texts(items, 0.6)
             blob = ' '.join(texts)
 
@@ -241,7 +252,14 @@ class SeasonEquipmentTask(BaseTask):
                     self.bot.click_at(pos[0], pos[1], '弹窗_锻造')
                     clicks += 1
                     stall = 0
+                    no_progress += 1
+                    last_forge_pos = pos
                     self.log(f"[点击] 弹窗「锻造」 | 图像={pos}")
+                    if no_progress >= _NO_PROGRESS_MAX:
+                        self.log(f"[错误] 连续 {no_progress} 次点锻造"
+                                 "未见锻造成功页，判卡住（资源不足？）"
+                                 f" | 末次坐标={pos}")
+                        return 'failed'
                     self._sleep(2.5)   # 几秒锻造动画
                 continue
 
@@ -255,11 +273,13 @@ class SeasonEquipmentTask(BaseTask):
                     clicks += 1
                     stall = 0
                     no_progress += 1
+                    last_forge_pos = forge_pos
                     self.log(f"[点击] {cur_class or '当前职业'}装备「锻造」"
                              f" | 图像={forge_pos}")
                     if no_progress >= _NO_PROGRESS_MAX:
                         self.log(f"[错误] 连续 {no_progress} 次点锻造"
-                                 "未见锻造成功页，判卡住（资源不足？）")
+                                 "未见锻造成功页，判卡住（资源不足？）"
+                                 f" | 末次坐标={forge_pos}")
                         return 'failed'
                     self._sleep(_LOOP_SLEEP)
                     continue

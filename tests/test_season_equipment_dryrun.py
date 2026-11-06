@@ -283,6 +283,145 @@ if os.path.exists(shot):
 else:
     print('  （截图不在本机，跳过交叉验证）')
 
+
+# ══ 6. v2.3.38 真机回归：OCR 缓存导致反复点已消失的按钮 ══════
+#   现场 logs/bug_reports/20261106_165948/：
+#     · 日志连点 (770,797) 8 次后 failed
+#     · shot.png 新鲜 OCR 显示唯一「锻造」在 (854,797)，(770,797) 已是
+#       700级空白面板（实测 conf 0.98 的「700级」）
+#     · screen.py:523-528 已知坑：稀疏指纹采不到单卡变化 → 60s TTL 返回旧帧
+#   分叉标准：修复前（无 no_cache）→ failed；修复后 → done。
+#   坐标全部来自真机 shot.png 的 MaaOCR 实测，不凑数。
+print('\n── 6. OCR 缓存行为分叉（真机 16:59 回归）──')
+
+TASK_SRC = os.path.join(ROOT, 'tasks', 'season_equipment.py')
+_src = open(TASK_SRC, encoding='utf-8').read()
+check('6a 源码全部 _ocr_screen 调用都带 no_cache=True（防新增调用漏改）',
+      _src.count('self.bot._ocr_screen(no_cache=True)') == 4
+      and 'self.bot._ocr_screen()' not in _src,
+      f"带参数 {_src.count('self.bot._ocr_screen(no_cache=True)')} / "
+      f"裸调用 {_src.count('self.bot._ocr_screen()')}")
+
+# 真机坐标：锻造前 2 件可锻造 (770,797)/(854,797)；锻造后仅剩 (854,797)
+Y_FORGE = 797
+X_STALE, X_FRESH = 770, 854
+
+
+def _class_frame(forges, zh='辅助'):
+    rows = [it(643, 211, f'{zh}装备'),
+            it(643, 1000, '锻造等级上限：700'),
+            it(855, 636, '当前无可替换装备'),
+            it(773, 770, '700级')]
+    for x in forges:
+        rows.append(it(Y_FORGE, x, '锻造'))
+    return rows
+
+
+def _dialog_frame():
+    return [it(386, 508, '当前装备'), it(386, 752, '可锻造装备'),
+            it(688, 744, '锻造'), it(888, 854, '锻造')]   # 背景按钮 ry0.87
+
+
+def _success_frame():
+    return [it(72, 639, '锻造成功'), it(950, 642, '穿戴新装备')]
+
+
+# 修复前源码：把 no_cache=True 全部回退，并截掉注册块避免重复注册
+_legacy_src = _src.replace('no_cache=True', 'no_cache=False')
+_legacy_src = _legacy_src.split('TaskRegistry.register(')[0]
+_ns = {'__name__': '_season_equipment_legacy', '__file__': TASK_SRC}
+exec(compile(_legacy_src, TASK_SRC, 'exec'), _ns)   # noqa: S102
+LegacyTask = _ns['SeasonEquipmentTask']
+
+
+class _CacheAwareBot(_SeqBot):
+    """模拟 screen.py 缓存：no_cache=False 恒返回陈旧帧，True 才推进。"""
+
+    def __init__(self, fresh_frames, stale, tpl_hits=None):
+        super().__init__(fresh_frames, tpl_hits=tpl_hits)
+        self.stale = list(stale)
+        self.fresh_calls = 0
+        self.stale_calls = 0
+
+    def _ocr_screen(self, img=None, no_cache=False):
+        if not no_cache:
+            self.stale_calls += 1
+            return list(self.stale)     # 60s TTL 内命中旧缓存
+        self.fresh_calls += 1
+        return super()._ocr_screen(img=img, no_cache=True)
+
+
+def _cache_case(task_cls):
+    # 新鲜帧序列：2 件可锻造 → 弹窗 → 成功 → 只剩 1 件 → 弹窗 → 成功
+    # → 0 件（职业完成）→ 之后保持 0 件，逐个切完 6 职业
+    stale = _class_frame((X_STALE, X_FRESH))
+    fresh = [
+        stale,                                   # startup_probe
+        _class_frame((X_STALE, X_FRESH)),        # loop: 点 770
+        _dialog_frame(), _success_frame(),
+        _class_frame((X_FRESH,)),                # 点 854（关键分叉帧）
+        _dialog_frame(), _success_frame(),
+        _class_frame(()),                        # 无可锻造 → 切职业
+    ]
+    bot = _CacheAwareBot(fresh, stale,
+                         tpl_hits={os.path.basename(v): (500, 986)
+                                   for v in CLASS_TPL.values()})
+    t, logs = make_task(bot)
+    if task_cls is not SeasonEquipmentTask:
+        t = task_cls({
+            'bot': bot, 'logger': lambda m: logs.append(m),
+            'stats': {}, 'stop_event': t._stop,
+            'pause_event': t._pause, 'options': {},
+            'max_time': None, 'max_turns': None,
+            'start_turns': 0, 'inst_id': 'season_equipment#1',
+        })
+    return t.run(), bot, logs
+
+
+# 6b 修复前：源码回退版 → 必须 failed（证明用例对 bug 敏感）
+res_old, bot_old, logs_old = _cache_case(LegacyTask)
+check('6b 修复前源码 → failed（连点已消失的 770 触发护栏）',
+      res_old == 'failed', res_old)
+check('6c 修复前确实反复点 (770,797)',
+      sum(1 for c in bot_old.clicks
+          if c[0] == '卡片_锻造' and c[1] == X_STALE) >= 8,
+      f'{sum(1 for c in bot_old.clicks if c[0]=="卡片_锻造")} 次点击')
+check('6d 修复前从未点到真机真实按钮 (854,797)',
+      not any(c[0] == '卡片_锻造' and c[1] == X_FRESH
+              for c in bot_old.clicks))
+check('6e 修复前全部走陈旧缓存（stale_calls>0, fresh_calls=0）',
+      bot_old.stale_calls > 0 and bot_old.fresh_calls == 0,
+      f'stale={bot_old.stale_calls} fresh={bot_old.fresh_calls}')
+
+# 6f 修复后：当前源码 → 必须 done（同一场景不同结果 = 有效分叉）
+res_new, bot_new, logs_new = _cache_case(SeasonEquipmentTask)
+check('6f 修复后源码 → done（同一场景分叉成功）', res_new == 'done', res_new)
+check('6g 修复后点到真机真实按钮 (854,797)',
+      any(c[0] == '卡片_锻造' and c[1] == X_FRESH
+          for c in bot_new.clicks),
+      str([c for c in bot_new.clicks if c[0] == '卡片_锻造'][:4]))
+check('6h 修复后全部强制重识别（fresh_calls>0, stale_calls=0）',
+      bot_new.fresh_calls > 0 and bot_new.stale_calls == 0,
+      f'stale={bot_new.stale_calls} fresh={bot_new.fresh_calls}')
+check('6i 修复后累计穿戴 2 件（两件各一次，不重复）',
+      sum(1 for c in bot_new.clicks if c[0] == '穿戴新装备') == 2,
+      f'{sum(1 for c in bot_new.clicks if c[0]=="穿戴新装备")} 件')
+
+
+# ══ 7. 护栏补强：弹窗不关闭（资源不足）不得空转至硬上限 ══════
+print('\n── 7. 弹窗路径护栏 ──')
+# 场景：点卡片 → 弹窗出现 → 点弹窗锻造但资源不足、弹窗不关闭；
+# 修复前 no_progress 只统计卡片点击，会一直点到 90 次硬上限。
+bot_res = _SeqBot([_class_frame((X_STALE,))] + [_dialog_frame()] * 40)
+res_res, logs_res, bot_res = run_case(bot_res)
+dlg_clicks = sum(1 for c in bot_res.clicks if c[0] == '弹窗_锻造')
+check('7a 资源不足/弹窗不关闭 → failed', res_res == 'failed', res_res)
+check('7b 弹窗点击计入无进展（≤8 次即止损，不空转 90 次）',
+      0 < dlg_clicks <= 8, f'弹窗点击 {dlg_clicks} 次')
+check('7c 失败日志带末次坐标（便于真机定位）',
+      any('末次坐标=' in l for l in logs_res),
+      str([l for l in logs_res if '末次坐标' in l][-1:]))
+
 print('\n' + '=' * 60)
 if _FAIL:
     print(f'❌ 失败 {len(_FAIL)} 项：')
