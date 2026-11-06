@@ -495,9 +495,11 @@ def build_default_registry() -> ScreenRegistry:
     reg.register(
         'season.equip_class',
         lambda items: (lambda h: h('锻造等级上限')
-                       and h('当前无可替换装备'))(_mk_has(items)),
+                       and not (h('当前装备') and h('可锻造装备'))
+                       and not h('锻造成功'))(_mk_has(items)),
         priority=92,
-        desc='职业装备页（六件装备 + 锻造按钮）',
+        desc='职业装备页（锻造等级上限 8/8 实测稳定；排除弹窗/成功页。'
+             '横幅文案随进度变化，见 v2.3.39 真机）',
     )
     reg.register(
         'season.equip_main',

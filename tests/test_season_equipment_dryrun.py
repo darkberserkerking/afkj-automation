@@ -28,7 +28,8 @@ import tasks.catalog  # noqa: F401,E402  import 即注册
 from task_registry import TaskRegistry  # noqa: E402
 from tasks.season_equipment import (  # noqa: E402
     CLASS_ORDER, CLASS_TPL, SeasonEquipmentTask,
-    _DIALOG_FORGE_RY_MAX, _IMG_H, _W_CLASS, _W_DIALOG, _W_MAIN,
+    _DIALOG_FORGE_RY_MAX, _IMG_H, _W_CLASS, _W_CLASS_DONE, _W_DIALOG,
+    _W_MAIN,
 )
 
 _PASS, _FAIL = [], []
@@ -421,6 +422,162 @@ check('7b 弹窗点击计入无进展（≤8 次即止损，不空转 90 次）'
 check('7c 失败日志带末次坐标（便于真机定位）',
       any('末次坐标=' in l for l in logs_res),
       str([l for l in logs_res if '末次坐标' in l][-1:]))
+
+
+# ══ 8. v2.3.39 真机回归：六件全 700 后横幅文案变化 ══════════
+#   现场 logs/bug_reports/20261106_173303/shot.png（1280x1024）MaaOCR：
+#     「锻造等级上限：700」(1000,642) conf .98、「辅助装备」(211,644) conf 1.00
+#     六张卡全 700级、无「锻造」按钮
+#     横幅「当前暂无可锻造的装备」(636,856) conf .98
+#   旧判据 _W_CLASS=('锻造等级上限','当前无可替换装备') 双词 AND →
+#   完成态判不出 → 20 帧 unknown → failed（真机 17:33）。
+#   分叉标准：修复前 failed；修复后识别完成态 → 切下一职业 → 六职业 done。
+print('\n── 8. 完成态横幅行为分叉（真机 17:33 回归）──')
+
+# 真机实测坐标/文案，不凑数
+def _done_frame(zh='辅助'):
+    return [it(53, 188, '辅'), it(61, 292, '助装备'),
+            it(440, 1038, '装备回收'),
+            it(514, 640, zh),
+            it(642, 1000, '锻造等级上限：700'),
+            it(644, 211, f'{zh}装备'),
+            *[it(773, x, '700级') for x in (434, 518, 598, 684, 770, 854)],
+            it(856, 636, '当前暂无可锻造的装备')]
+
+
+def _legacy_done_class():
+    """把源码判据回退成 v2.3.38 的死守横幅版，exec 出等价旧类。"""
+    src = open(TASK_SRC, encoding='utf-8').read()
+    old = "_W_CLASS_DONE = ('当前无可替换装备', '当前暂无可锻造的装备')"
+    assert src.count(old) == 1
+    # 旧版：_W_CLASS 双词含横幅，且无完成态兜底分支
+    back = src.replace(
+        "_W_CLASS = ('锻造等级上限',)      # 8/8 截图全中；弹窗亦含此词，靠优先级排除",
+        "_W_CLASS = ('锻造等级上限', '当前无可替换装备')")
+    back = back.replace(
+        """            if (all(k in blob for k in _W_CLASS)
+                    and not all(k in blob for k in _W_DIALOG)
+                    and not all(k in blob for k in _W_SUCCESS)):""",
+        "            if all(k in blob for k in _W_CLASS):")
+    # 去掉完成态兜底分支，模拟修复前
+    marker = "            # ⑥ 完成态兜底"
+    if marker in back:
+        head, tail = back.split(marker, 1)
+        _, tail = tail.split("            # ⑦ 未知 / 动画过渡", 1)
+        back = head + "            # ⑥ 未知 / 动画过渡" + tail
+    back = back.split('TaskRegistry.register(')[0]
+    ns = {'__name__': '_season_done_legacy', '__file__': TASK_SRC}
+    exec(compile(back, TASK_SRC, 'exec'), ns)   # noqa: S102
+    return ns['SeasonEquipmentTask']
+
+
+LegacyDoneTask = _legacy_done_class()
+
+
+def _done_case(task_cls):
+    # 启动即在完成态（辅助已锻完）→ 应识别并依次切完 5 个职业 → done
+    bot = _SeqBot([_done_frame()] * 12,
+                  tpl_hits={os.path.basename(v): (500, 986)
+                            for v in CLASS_TPL.values()})
+    logs = []
+    paus = threading.Event(); paus.set()
+    t = task_cls({
+        'bot': bot, 'logger': lambda m: logs.append(m), 'stats': {},
+        'stop_event': threading.Event(), 'pause_event': paus,
+        'options': {}, 'max_time': None, 'max_turns': None,
+        'start_turns': 0, 'inst_id': 'season_equipment#1',
+    })
+    return t.run(), bot, logs
+
+
+res_old8, bot_old8, logs_old8 = _done_case(LegacyDoneTask)
+check('8a 修复前完成态 → failed（20 帧 unknown）', res_old8 == 'failed', res_old8)
+check('8b 修复前日志确为「未识别到可操作界面」',
+      any('未识别到可操作界面' in l for l in logs_old8),
+      str([l for l in logs_old8 if '错误' in l][-1:]))
+check('8c 修复前未切换任何职业',
+      not any(n.startswith('season_class_') for n in bot_old8.tpl_calls))
+
+res_new8, bot_new8, logs_new8 = _done_case(SeasonEquipmentTask)
+check('8d 修复后完成态 → done（分叉成功）', res_new8 == 'done', res_new8)
+check('8e 修复后识别到「当前暂无可锻造的装备」完成信号',
+      any('当前暂无可锻造的装备' in l for l in logs_new8),
+      str([l for l in logs_new8 if '已无可锻造' in l][:2]))
+check('8f 修复后切完 5 个剩余职业',
+      sum(1 for c in bot_new8.clicks if c[0] == '_click_abs') == 5,
+      f'{sum(1 for c in bot_new8.clicks if c[0]=="_click_abs")} 次切换')
+check('8g 修复后无 unknown 报错',
+      not any('未识别到可操作界面' in l for l in logs_new8))
+
+# registry 五态不抢判（稳定词 + 显式排除）
+from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY as _REG  # noqa: E402
+
+
+def _detect(texts):
+    return _REG.detect([(0, 0, t, 0.99, 0, 0) for t in texts])
+
+
+check('8h registry 完成态 → season.equip_class',
+      _detect(['锻造等级上限：700', '当前暂无可锻造的装备', '辅助装备'])
+      == 'season.equip_class')
+check('8i registry 弹窗（也含锻造等级上限）→ 不被抢判',
+      _detect(['锻造等级上限：700', '当前装备', '可锻造装备'])
+      == 'season.forge_dialog')
+check('8j registry 成功页 → 不被抢判',
+      _detect(['锻造成功', '穿戴新装备']) == 'season.forge_success')
+
+
+# 9. 混合场景：A 职业已完成、B 职业仍可锻造（真机最常见的跨职业状态）
+print('\n── 9. 完成态 + 可锻造态混合 ──')
+
+
+def _class_with_forge(zh='法师'):
+    """职业页：稳定词 + 「当前无可替换装备」横幅 + 1 个锻造按钮。"""
+    return [it(642, 1000, '锻造等级上限：700'),
+            it(644, 211, f'{zh}装备'),
+            it(514, 640, zh),
+            it(773, 770, '620级'),
+            it(797, 854, '锻造'),
+            it(856, 636, '当前无可替换装备')]
+
+
+# 帧序：辅助完成态 → 切法师(模板) → 法师有按钮 → 弹窗 → 成功
+#       → 法师完成态 → 切战士/游侠/射手/坦克（均完成态）→ done
+mixed = [
+    _done_frame('辅助'),                    # startup_probe
+    _done_frame('辅助'),                    # loop: 识别完成 → 切法师
+    _class_with_forge('法师'),              # 法师有按钮 → 点锻造
+    _dialog_frame(), _success_frame(),
+    _done_frame('法师'),                    # 法师完成 → 切战士
+    _done_frame('战士'),
+    _done_frame('游侠'),
+    _done_frame('射手'),
+    _done_frame('坦克'),
+]
+bot_mix = _SeqBot(mixed,
+                  tpl_hits={os.path.basename(v): (500, 986)
+                            for v in CLASS_TPL.values()})
+res_mix, logs_mix, bot_mix = run_case(bot_mix)
+check('9a 混合场景 → done', res_mix == 'done', res_mix)
+check('9b 完成态职业没有漏掉后续可锻造职业（法师被锻造）',
+      any(c[0] == '卡片_锻造' and c[1] == 854 for c in bot_mix.clicks),
+      str([c for c in bot_mix.clicks if c[0] == '卡片_锻造'][:3]))
+check('9c 穿戴 1 件（只锻法师那件，不重复锻已完成的）',
+      sum(1 for c in bot_mix.clicks if c[0] == '穿戴新装备') == 1,
+      f'{sum(1 for c in bot_mix.clicks if c[0]=="穿戴新装备")} 件')
+check('9d 完成信号被记录，且两种横幅都已登记为完成词',
+      any('当前暂无可锻造的装备' in l for l in logs_mix)
+      and '当前无可替换装备' in _W_CLASS_DONE
+      and '当前暂无可锻造的装备' in _W_CLASS_DONE,
+      str([l for l in logs_mix if '已无可锻造' in l][:2]))
+# 「当前无可替换装备」+ 有锻造按钮同帧时，必须点锻造而非误判完成
+bot_banner = _SeqBot([_class_with_forge('法师'), _class_with_forge('法师')],
+                     tpl_hits={})
+res_b, logs_b, bot_b = run_case(bot_banner)
+check('9e 「当前无可替换装备」不触发完成（有按钮照样锻）',
+      any(c[0] == '卡片_锻造' for c in bot_b.clicks)
+      and not any('已无可锻造' in l for l in logs_b),
+      str([c[0] for c in bot_b.clicks][:3]))
 
 print('\n' + '=' * 60)
 if _FAIL:

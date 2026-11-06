@@ -30,6 +30,14 @@
   · 纯图案的 6 个职业圆形图标 → 模板匹配（底部 tab 无文字，
     OCR 全无输出，必须用模板）；模板为 RGBA 圆外透明 + maskedNCC
 
+【职业页判据（v2.3.39 真机修复）】
+  · 横幅文案随进度变：还有可锻造时「当前无可替换装备」，六件全 700
+    后变「当前暂无可锻造的装备」。把横幅写进 AND 判据会让**完成态**
+    整个界面判不出（真机 17:33 连续 20 帧 unknown → failed）。
+  · 故判据只用 8/8 截图全中的「锻造等级上限」，并显式排除弹窗/
+    成功页（弹窗也含该词）；两种横幅作为「本职业完成」的显式信号，
+    见 _W_CLASS_DONE。
+
 【OCR 缓存铁律（v2.3.38 真机修复）】
   · 本任务的判据完全依赖「某张卡下方『锻造』按钮是否消失」这种
     **小面积画面变化**；而 screen.py 的 OCR 缓存键是 20 点稀疏指纹，
@@ -83,7 +91,14 @@ _MAIN_ICON_SCALE_RANGE: Tuple[float, float, float] = (1.3, 1.9, 0.1)
 
 # 判据词（子串，来自真机 OCR）
 _W_MAIN = ('待领宝箱列表', '当前赛季')
-_W_CLASS = ('锻造等级上限', '当前无可替换装备')
+# v2.3.39 真机：横幅文案随进度变化，不可写进 AND 判据——
+#   还有可锻造 → 「当前无可替换装备」
+#   六件全 700 → 「当前暂无可锻造的装备」
+# 8 张实测截图共同稳定词只有「锻造等级上限：700」(8/8)；
+# 「装备回收」只在两轮真机出现（用户最初 5 张职业页全无），不可入判据。
+# 故职业页只认该稳定词 + 显式排除弹窗/成功态；横幅仅作完成态信号。
+_W_CLASS = ('锻造等级上限',)      # 8/8 截图全中；弹窗亦含此词，靠优先级排除
+_W_CLASS_DONE = ('当前无可替换装备', '当前暂无可锻造的装备')
 _W_DIALOG = ('当前装备', '可锻造装备')
 _W_SUCCESS = ('锻造成功', '穿戴新装备')
 _W_ENTRY = '赛季装备'
@@ -150,6 +165,7 @@ class SeasonEquipmentTask(BaseTask):
         blob = ' '.join(texts)
         return (all(k in blob for k in _W_MAIN)
                 or all(k in blob for k in _W_CLASS)
+                or any(k in blob for k in _W_CLASS_DONE)
                 or all(k in blob for k in _W_DIALOG)
                 or all(k in blob for k in _W_SUCCESS))
 
@@ -264,7 +280,10 @@ class SeasonEquipmentTask(BaseTask):
                 continue
 
             # ③ 职业装备页 → 找卡片「锻造」按钮
-            if all(k in blob for k in _W_CLASS):
+            #    弹窗也含「锻造等级上限」，显式排除防顺序调整后抢判
+            if (all(k in blob for k in _W_CLASS)
+                    and not all(k in blob for k in _W_DIALOG)
+                    and not all(k in blob for k in _W_SUCCESS)):
                 if cur_class is None:
                     cur_class = self._detect_class(items)
                 forge_pos = self._card_forge_pos(items)
@@ -285,10 +304,13 @@ class SeasonEquipmentTask(BaseTask):
                     continue
 
                 # 本职业已无可锻造 → 记完成 → 切下一个职业
+                # v2.3.39：完成态横幅是明确信号，日志带出便于真机核对
+                done_word = next((k for k in _W_CLASS_DONE
+                                  if k in blob), '无锻造按钮')
                 if cur_class:
                     done_classes.add(cur_class)
                     self.log(f"[成功] {cur_class}装备已无可锻造"
-                             f"（{len(done_classes)}/6 职业完成）")
+                             f"（{done_word}；{len(done_classes)}/6 职业完成）")
                 no_progress = 0
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
@@ -336,7 +358,29 @@ class SeasonEquipmentTask(BaseTask):
                     continue
                 stall += 1
 
-            # ⑥ 未知 / 动画过渡
+            # ⑥ 完成态兜底：稳定词漏读但横幅明确（真机 17:33 现场）
+            elif (any(k in blob for k in _W_CLASS_DONE)
+                  and any('装备' in t for t in texts)):
+                if cur_class:
+                    done_classes.add(cur_class)
+                    self.log(f"[成功] {cur_class}装备已无可锻造"
+                             f"（完成横幅；{len(done_classes)}/6 职业完成）")
+                nxt = next((c for c in CLASS_ORDER
+                            if c not in done_classes), None)
+                if nxt is None:
+                    self.log(f"[成功] 六职业全部锻造完成，累计 {forged} 件")
+                    return 'done'
+                if self._switch_class(nxt):
+                    cur_class = nxt
+                    clicks += 1
+                    stall = 0
+                    self.log(f"[信息] 切换职业 → {nxt}")
+                    self._sleep(_LOOP_SLEEP)
+                    continue
+                self.log(f"[错误] 切换职业「{nxt}」失败（模板未命中）")
+                return 'failed'
+
+            # ⑦ 未知 / 动画过渡
             else:
                 stall += 1
 
