@@ -78,7 +78,8 @@ check("catalog 注册全部任务类",
       set(TASK_CLASSES) == {'auto_farm', 'labyrinth', 'goddess_trial',
                             'home', 'arena', 'daily_quest', 'friend_gift',
                             'dream_realm', 'guild_battle', 'tianqiong_trial',
-                            'start_game', 'close_game'},
+                            'start_game', 'close_game',
+                            'season_equipment'},
       str(list(TASK_CLASSES)))
 
 check("auto_farm ready + planned 区分",

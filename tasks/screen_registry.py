@@ -473,6 +473,39 @@ def build_default_registry() -> ScreenRegistry:
                         # 1 层底部 UI 栏的常驻文字，会抢判本画面（独立验证 F1）
         desc='神秘屋（1 层；内部横匾 神秘珍藏/金玫瑰高定/月桂酒馆）',
     )
+    # ── v2.3.37 赛季职业装备（更新装备）──────────────────────
+    #   判据全部来自真机 MaaOCR（17 张截图批量识别），双词 AND 避开
+    #   底栏常驻文字；priority 90~93 早于常规 100+ 判据。
+    #   注意：锻造弹窗会同时读到背景「锻造等级上限」，故
+    #   forge_dialog(91) 必须早于 equip_class(92)。
+    reg.register(
+        'season.forge_success',
+        lambda items: (lambda h: h('锻造成功') and h('穿戴新装备'))(
+            _mk_has(items)),
+        priority=90,
+        desc='锻造成功页（穿戴新装备）',
+    )
+    reg.register(
+        'season.forge_dialog',
+        lambda items: (lambda h: h('当前装备') and h('可锻造装备'))(
+            _mk_has(items)),
+        priority=91,
+        desc='锻造确认弹窗（当前装备/可锻造装备）',
+    )
+    reg.register(
+        'season.equip_class',
+        lambda items: (lambda h: h('锻造等级上限')
+                       and h('当前无可替换装备'))(_mk_has(items)),
+        priority=92,
+        desc='职业装备页（六件装备 + 锻造按钮）',
+    )
+    reg.register(
+        'season.equip_main',
+        lambda items: (lambda h: h('待领宝箱列表') and h('当前赛季'))(
+            _mk_has(items)),
+        priority=93,
+        desc='赛季职业装备主界面（六职业圆形图标）',
+    )
     reg.register(
         'nav.hero_hall',
         lambda items: (lambda h: h('赛季共鸣等级')
@@ -617,6 +650,11 @@ ZH_SCREEN = {
     'labyrinth.boss_cleared': '难度通关', 'labyrinth.final_settle': '探索完成',
     'labyrinth.leave_settle': '离开迷宫结算',
     'labyrinth.push_map': '推图副本', 'unknown': '未识别画面',
+    # v2.3.37 赛季职业装备
+    'season.equip_main': '赛季职业装备主界面',
+    'season.equip_class': '职业装备页',
+    'season.forge_dialog': '锻造确认弹窗',
+    'season.forge_success': '锻造成功页',
 }
 
 

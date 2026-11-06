@@ -56,13 +56,14 @@ REQUIRED = {
     'tianqiong_trial': ('当日开放', '失败', '全部完成'),
     'start_game': ('拉起', '跳过'),
     'close_game': ('关闭', '跳过'),
+    'season_equipment': ('锻造', '穿戴', '职业'),
 }
 
 metas = TaskRegistry.get_all()
 by_id = {m.id: m for m in metas}
 
 print(f'── catalog 共 {len(metas)} 个任务 ──')
-check('catalog 覆盖 ≥12 个任务（防止漏注册/漏改）', len(metas) >= 12,
+check('catalog 覆盖 ≥13 个任务（防止漏注册/漏改）', len(metas) >= 13,
       f'实际 {len(metas)}')
 
 for m in metas:
@@ -116,8 +117,8 @@ for path in src_files:
                 if mo2:
                     src_desc.setdefault(os.path.basename(path), []).append(mo2.group(1))
 all_src = [d for ds in src_desc.values() for d in ds]
-check('源码中 description 定义数 ≥12（覆盖全部任务）',
-      len(all_src) >= 12, f'实际 {len(all_src)}')
+check('源码中 description 定义数 ≥13（覆盖全部任务）',
+      len(all_src) >= 13, f'实际 {len(all_src)}')
 for d in all_src:
     check('源码定义 ≤20 字且无实现细节',
           len(d) <= MAX_LEN and not any(k in d for k in IMPL_KEYWORDS),

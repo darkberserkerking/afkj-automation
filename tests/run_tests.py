@@ -40,6 +40,7 @@ SUITES = {
     'tests/test_home_task_dryrun.py': ({1, 2, 3}, False),
     'tests/test_gui_drawer_smoke.py': ({1, 2, 3}, True),      # Tk 独占
     'tests/test_task_description_consistency.py': ({1, 2, 3}, False),  # 全量文案一致性
+    'tests/test_season_equipment_dryrun.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
@@ -170,6 +171,15 @@ CHANGE_MAP = [
     ('tasks/catalog.py', ['tests/test_task_scheduler_smoke.py',
                           'tests/test_gui_drawer_smoke.py',
                           'tests/test_task_description_consistency.py']),
+    # v2.3.37 赛季装备锻造
+    ('tasks/season_equipment.py',
+     ['tests/test_season_equipment_dryrun.py',
+      'tests/test_task_scheduler_smoke.py']),
+    ('tasks/screen_registry.py',
+     ['tests/test_nav_edges_coverage.py',
+      'tests/test_global_nav_consistency.py']),
+    ('templates/season_class_*.png',
+     ['tests/test_season_equipment_dryrun.py']),
     # v2.3.35：任务栏文案一致性——任一任务说明/渲染链路改动都须跑全量校验
     ('afk_gui.py#desc', ['tests/test_task_description_consistency.py']),
     ('tasks/tianqiong_trial.py#desc',

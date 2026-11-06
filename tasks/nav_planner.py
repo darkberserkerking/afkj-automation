@@ -238,6 +238,24 @@ NAV_EDGES: Dict[str, List[Tuple[str, str, str]]] = {
         ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
     ],
 
+    # v2.3.37 赛季职业装备：ESC 逐层退回（最短路径用）
+    'season.equip_main': [
+        ('nav.hero_hall', 'esc', 'ESC 退回英雄厅堂'),
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+    'season.equip_class': [
+        ('season.equip_main', 'esc', 'ESC 退回赛季装备主界面'),
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+    'season.forge_dialog': [
+        ('season.equip_class', 'esc', 'ESC 退回职业装备页'),
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+    'season.forge_success': [
+        ('season.equip_class', 'esc', 'ESC 退回职业装备页'),
+        ('nav.playbook', 'esc', 'ESC 退回玩法目录'),
+    ],
+
     # ── 系统弹层：不入路径图，由统一清理逻辑处理（无需出边）────────────
     #    以下 5 个注册画面为覆盖层/过渡态，无稳定的"上一层"语义，
     #    统一由清理逻辑（点 X / 等待 / 领奖）消除，故不为其建立出边：

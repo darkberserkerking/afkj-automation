@@ -20,6 +20,7 @@ from tasks.dream_realm import DreamRealmTask
 from tasks.guild_battle import GuildBattleTask
 from tasks.tianqiong_trial import TianqiongTrialTask
 from tasks.game_control import CloseGameTask, StartGameTask
+from tasks.season_equipment import SeasonEquipmentTask
 
 TASK_CLASSES = {
     AutoFarmTask.task_id: AutoFarmTask,
@@ -34,4 +35,5 @@ TASK_CLASSES = {
     TianqiongTrialTask.task_id: TianqiongTrialTask,
     StartGameTask.task_id: StartGameTask,
     CloseGameTask.task_id: CloseGameTask,
+    SeasonEquipmentTask.task_id: SeasonEquipmentTask,
 }

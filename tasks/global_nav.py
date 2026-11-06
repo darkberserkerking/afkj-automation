@@ -85,6 +85,11 @@ _SCREEN_LAYER: Dict[str, int] = {
     'labyrinth.door_fallback': 3,
     'home.wishlist': 3,   # v1.9.12：一键家园·愿望单界面
     'home.res_short': 3,  # v1.9.18：资源不足弹窗（材料耗尽获取途径）
+    # v2.3.37 赛季职业装备：主界面 2 层 / 职业页与弹窗 3 层
+    'season.equip_main': 2,
+    'season.equip_class': 3,
+    'season.forge_dialog': 3,
+    'season.forge_success': 3,
     'goddess.battle_prep': 3, 'goddess.victory_result': 3,
     'goddess.sweep_dialog': 3, 'goddess.auto_battle': 3,
 }
