@@ -722,6 +722,27 @@ def download_asset(
     total_limit = 1800.0      # 单次下载总时长上限（30 分钟）
     last_err: Optional[Exception] = None
 
+    # v2.4.1：下载也走多通道回退（此前只有 API 走三级，下载裸用默认
+    # opener → 真机 2026-11-07 00:51 实锤：系统代理 127.0.0.1:80 对
+    # objects.githubusercontent.com 的 CONNECT 隧道回 502 且不落直连
+    # → 下载必败）。每项独立 try 保护，任一通则用之。
+    dl_openers = []
+    for _tag, _pm in (('系统代理', None), ('直连', {})):
+        try:
+            dl_openers.append((_tag, _build_opener(_pm)))
+        except Exception as _e:                          # noqa: BLE001
+            _diag(f'  dl opener {_tag} FAIL: {type(_e).__name__}: {_e}')
+    try:
+        for _p in _probe_local_proxies():
+            _proxy = f'http://127.0.0.1:{_p}'
+            dl_openers.append(
+                (f'本地代理:{_p}',
+                 _build_opener({'http': _proxy, 'https': _proxy})))
+    except Exception as _e:                              # noqa: BLE001
+        _diag(f'  dl probe FAIL: {type(_e).__name__}: {_e}')
+    if not dl_openers:      # 全部构造失败 → 保底裸 opener，别没得用
+        dl_openers.append(('默认', urllib.request.build_opener()))
+
     for attempt in range(1, max(1, max_retries) + 1):
         have = dest.stat().st_size if dest.exists() else 0
         if total and have >= total:
@@ -735,8 +756,24 @@ def download_asset(
         t_last = t_start
         last_size = done
         try:
-            with urllib.request.urlopen(req, timeout=timeout,
-                                        context=_SSL_CTX) as resp, \
+            # 依次尝试各通道（502/拒连/瞬断 → 换下一个；Range 续传
+            # 由 `have` 驱动，换通道也能续）
+            _resp = None
+            _used = ''
+            for _tag, _opener in dl_openers:
+                try:
+                    _resp = _opener.open(req, timeout=timeout)
+                    _used = _tag
+                    break
+                except Exception as _e:                  # noqa: BLE001
+                    last_err = _e
+                    _diag(f'  dl {_tag}: FAIL '
+                          f'{type(_e).__name__}: {_e}')
+            if _resp is None:
+                raise UpdateError(
+                    f'所有下载通道均失败（{last_err}）')
+            _diag(f'  dl via {_used} OK（第 {attempt} 轮）')
+            with _resp as resp, \
                     open(dest, 'ab' if have > 0 else 'wb') as fh:
                 # 没拿 206（服务器不支持 Range）→ 清空重下
                 if have > 0 and getattr(resp, 'status', 200) != 206:
