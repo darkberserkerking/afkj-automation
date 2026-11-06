@@ -175,7 +175,30 @@ def _ssl_context():
     v2.2.23 的修复，又覆盖本机信任链；不降低证书校验强度。
     """
     import ssl
-    ctx = ssl.create_default_context()      # 关键：不传 cafile
+    # v2.3.54：三级构造（真机 2026-11-07 00:13 实锤——
+    # create_default_context() 的 win32 分支把 Windows 证书库全量拼接后
+    # 一次性 load，库内一张坏证书即整体炸 [ASN1: NOT_ENOUGH_DATA]；
+    # exe 打包的 OpenSSL 与源码环境解析行为不同，仅 exe 中招）。
+    # 三级均不降低校验强度（PROTOCOL_TLS_CLIENT 自带 check_hostname）。
+    try:
+        ctx = ssl.create_default_context()   # 首选：系统默认证书库
+        _load_certifi(ctx)
+        return ctx
+    except Exception as _e:                              # noqa: BLE001
+        _diag(f'  ssl ctx default FAIL: {type(_e).__name__}: {_e}')
+    try:
+        ctx = _ssl_context_windows_tolerant()  # 次选：逐证书容错加载
+        _load_certifi(ctx)
+        return ctx
+    except Exception as _e:                              # noqa: BLE001
+        _diag(f'  ssl ctx tolerant FAIL: {type(_e).__name__}: {_e}')
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # 兜底：仅 certifi
+    _load_certifi(ctx)
+    return ctx
+
+
+def _load_certifi(ctx) -> None:
+    """追加 certifi CA 到 ctx（失败不中断，仍有系统证书库兜着）。"""
     try:
         import certifi
         # 打包后 certifi 的数据文件在 _MEIPASS/certifi/cacert.pem
@@ -190,6 +213,38 @@ def _ssl_context():
     except Exception:
         # certifi 不可用时至少还有系统证书库，不额外降级
         pass
+
+
+def _ssl_context_windows_tolerant():
+    """逐证书加载 Windows ROOT/CA 库，坏证书跳过不中断（v2.3.54）。
+
+    CPython 的 create_default_context() win32 分支把整库拼成一份 cadata
+    一次性 load —— 一张坏证书全盘皆输。这里逐张 load，解析失败的
+    记数跳过；一无可读才抛（交由上层降级到仅 certifi）。
+    """
+    import ssl
+    from ssl import Purpose
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    loaded = failed = 0
+    for storename in ('ROOT', 'CA'):
+        try:
+            store_certs = ssl.enum_certificates(storename)
+        except Exception:                                # noqa: BLE001
+            continue
+        for cert, encoding, trust in store_certs:
+            # 复刻 stdlib 信任过滤：CA 证书不会是 PKCS#7
+            if encoding != 'x509_asn':
+                continue
+            if trust is not True and Purpose.SERVER_AUTH.oid not in trust:
+                continue
+            try:
+                ctx.load_verify_locations(cadata=cert)
+                loaded += 1
+            except Exception:                            # noqa: BLE001
+                failed += 1
+    _diag(f'  win store certs: loaded={loaded} skipped={failed}')
+    if loaded == 0:
+        raise RuntimeError('Windows 证书库一无可读')
     return ctx
 
 

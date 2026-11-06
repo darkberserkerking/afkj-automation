@@ -164,6 +164,59 @@ finally:
     U._build_opener = _old_bo
     os.environ.pop('AFKJ_NET_DIAG_PATH', None)
 
+# ── 7 系：v2.3.54 `_ssl_context` 三级容错（真机日志实锤）──────────
+# create_default_context() 的 win32 分支全量拼接 Windows 证书库一次性
+# load —— 一张坏证书整体炸（exe 报 [ASN1: NOT_ENOUGH_DATA]）。修复后
+# 必须逐证书容错降级，任何情况下都能产出可用 SSLContext。
+import ssl as _sslmod                                    # noqa: E402
+
+_diag_log_7 = os.path.join(
+    os.environ.get('TEMP', os.getcwd()), 'afkj_net_diag_selftest7.log')
+if os.path.isfile(_diag_log_7):
+    os.remove(_diag_log_7)
+os.environ['AFKJ_NET_DIAG_PATH'] = _diag_log_7
+_old_cdc = _sslmod.create_default_context
+
+try:
+    check('7a 正常路径 _ssl_context 可用',
+          len(U._ssl_context().get_ca_certs()) >= 1)
+
+    def _cdc_boom(*a, **kw):
+        raise _ssl.SSLError(
+            '[ASN1: NOT_ENOUGH_DATA] not enough data (_ssl.c:4057)')
+
+    _sslmod.create_default_context = _cdc_boom
+    try:
+        _ctx7 = U._ssl_context()
+        check('7b 默认分支炸 → 逐证书容错分支顶上',
+              isinstance(_ctx7, _sslmod.SSLContext)
+              and len(_ctx7.get_ca_certs()) >= 1)
+    except Exception as _e:                              # noqa: BLE001
+        check(f'7b 默认分支炸 → 逐证书容错分支顶上（异常 {_e}）', False)
+
+    _orig_enum = _sslmod.enum_certificates
+
+    def _enum_boom(_store):
+        raise OSError('no store')
+
+    _sslmod.enum_certificates = _enum_boom
+    try:
+        _ctx7b = U._ssl_context()
+        check('7c 证书库也炸 → 仅 certifi 兜底仍有 CA',
+              isinstance(_ctx7b, _sslmod.SSLContext)
+              and len(_ctx7b.get_ca_certs()) >= 1)
+    except Exception as _e:                              # noqa: BLE001
+        check(f'7c 证书库也炸 → 仅 certifi 兜底仍有 CA（异常 {_e}）', False)
+    finally:
+        _sslmod.SSLContext.enum_certificates = _orig_enum
+finally:
+    _sslmod.create_default_context = _old_cdc
+    os.environ.pop('AFKJ_NET_DIAG_PATH', None)
+
+check('7d 降级链留痕诊断日志',
+      os.path.isfile(_diag_log_7)
+      and 'ssl ctx default FAIL' in open(_diag_log_7, encoding='utf-8').read())
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')
