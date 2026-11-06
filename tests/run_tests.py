@@ -47,6 +47,7 @@ SUITES = {
     'tests/test_chest_region.py': ({1, 2, 3}, False),
     'tests/test_switch_btn_region.py': ({1, 2, 3}, False),
     'tests/test_updater_net_retry.py': ({1, 2, 3}, False),
+    'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
@@ -179,7 +180,8 @@ CHANGE_MAP = [
                           'tests/test_gui_drawer_smoke.py',
                           'tests/test_task_description_consistency.py']),
     # v2.3.48 检查更新网络重试
-    ('afk_bot/updater.py', ['tests/test_updater_net_retry.py']),
+    ('afk_bot/updater.py', ['tests/test_updater_net_retry.py',
+                            'tests/test_updater_atomic_download.py']),
     # v2.3.47 > 按钮搜索区域（竖屏放宽）
     ('afk_bot/auto_farm/formation.py', ['tests/test_switch_btn_region.py']),
     # v2.3.46 挂机宝箱/沙漏区域（横竖屏归一）

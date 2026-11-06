@@ -688,6 +688,8 @@ def download_asset(
     dest_dir = Path(dest_dir or tempfile.mkdtemp(prefix='afkj_upd_'))
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / (info.asset_name or 'afkj_update.exe')
+    # v2.4.2：先写 temp，成功后原子改名 —— 中断绝不留半截成品
+    dest_tmp = dest.with_name(dest.name + '.temp')
 
     # 注入的假 fetch（单测用）：一次拿全量
     if fetch is not None:
@@ -704,7 +706,8 @@ def download_asset(
                 progress(len(data), len(data))
             except Exception:
                 pass
-        dest.write_bytes(data)
+        dest_tmp.write_bytes(data)
+        os.replace(dest_tmp, dest)
         return dest
 
     # 真实下载：**流式分块 + 断点续传重试**（v2.3.2）
@@ -718,6 +721,10 @@ def download_asset(
     if _SSL_CTX is None:
         _SSL_CTX = _ssl_context()
     total = info.size or 0
+    # v2.4.2：同版本完整包已存在 → 幂等跳过（AUTO-MAS 式 UpdatePack 缓存）
+    if dest.exists() and (not total or dest.stat().st_size == total):
+        _diag(f'  update pack already complete: {dest}')
+        return dest
     stall_limit = 20.0        # 连续多少秒没收到新数据 → 判定卡死
     total_limit = 1800.0      # 单次下载总时长上限（30 分钟）
     last_err: Optional[Exception] = None
@@ -744,8 +751,10 @@ def download_asset(
         dl_openers.append(('默认', urllib.request.build_opener()))
 
     for attempt in range(1, max(1, max_retries) + 1):
-        have = dest.stat().st_size if dest.exists() else 0
+        have = dest_tmp.stat().st_size if dest_tmp.exists() else 0
         if total and have >= total:
+            # temp 已完整（上轮下完但没来得及改名）→ 补 rename
+            os.replace(dest_tmp, dest)
             break
         headers = _headers(tok)
         if have > 0:
@@ -774,13 +783,13 @@ def download_asset(
                     f'所有下载通道均失败（{last_err}）')
             _diag(f'  dl via {_used} OK（第 {attempt} 轮）')
             with _resp as resp, \
-                    open(dest, 'ab' if have > 0 else 'wb') as fh:
+                    open(dest_tmp, 'ab' if have > 0 else 'wb') as fh:
                 # 没拿 206（服务器不支持 Range）→ 清空重下
                 if have > 0 and getattr(resp, 'status', 200) != 206:
                     fh.close()
-                    dest.unlink(missing_ok=True)
+                    dest_tmp.unlink(missing_ok=True)
                     done = 0
-                    fh = open(dest, 'wb')
+                    fh = open(dest_tmp, 'wb')
                 while True:
                     chunk = resp.read(256 * 1024)
                     if not chunk:
@@ -805,9 +814,13 @@ def download_asset(
                         except Exception:
                             pass
             if total and done < total:
-                # 断流：文件虽然关掉了但不完整 → 下一轮 Range 续传
+                # 断流：文件虽然关掉了但不完整 → temp 保留，
+                # 下一轮 Range 续传（v2.4.2：绝不动最终路径）
                 raise UpdateError(
                     f'连接中断（已下 {done}/{total} 字节）')
+            # 下载完整 → 原子改名（Windows 上 replace 可覆盖旧文件）
+            os.replace(dest_tmp, dest)
+            _diag(f'  dl rename → {dest.name} OK')
             last_err = None
             break
         except Exception as e:
