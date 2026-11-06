@@ -48,7 +48,7 @@ REQUIRED = {
     'labyrinth': ('迷宫', '层'),
     'goddess_trial': ('挑战', '扫荡'),
     'home': ('愿望单',),
-    'arena': ('对手', '票'),
+    'arena': ('好友', '公会', '对手', '票'),
     'daily_quest': ('每日任务', '活跃度'),
     'friend_gift': ('赠礼', '友情点'),
     'dream_realm': ('迷梦', '次数'),
@@ -78,6 +78,26 @@ for m in metas:
     if need:
         check(f'[{m.id}] 必要信息完整 {need}',
               all(k in d for k in need), d)
+
+# ── 竞技场专项（用户 2026-11-06 点名要求注明）─────────────────
+# 对应 tasks/arena.py:_pick_opponent() 的 blocked 规则：
+# 含「公会成员」或「好友」标签的列会被排除，不参与对手选择。
+print('\n── 竞技场排除规则说明 ──')
+_arena_desc = by_id['arena'].description
+check('竞技场注明排除好友', '好友' in _arena_desc, _arena_desc)
+check('竞技场注明排除公会成员', '公会' in _arena_desc, _arena_desc)
+check('竞技场注明「排除」语义（非仅罗列）',
+      '排除' in _arena_desc or '不含' in _arena_desc or '避开' in _arena_desc,
+      _arena_desc)
+check('竞技场仍保留按名单选对手与票尽结束条件',
+      '名单' in _arena_desc and '票' in _arena_desc, _arena_desc)
+# 面向用户的文档口径必须与代码一致（避免界面写了、手册漏写）
+for _doc in ('docs/客户使用说明.md', 'README.md'):
+    with open(os.path.join(ROOT, _doc), encoding='utf-8') as _f:
+        _arena_line = next((l for l in _f if '竞技场' in l and '|' in l), '')
+    check(f'{_doc} 竞技场说明同步注明排除好友/公会',
+          '好友' in _arena_line and '公会' in _arena_line,
+          _arena_line.strip()[:80])
 
 # ── 源码定义与 catalog 注册值一致（防止只改了注册处、源码另有一份）──
 print('\n── 源码 ↔ catalog 一致性 ──')

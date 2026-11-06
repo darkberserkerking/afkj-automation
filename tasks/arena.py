@@ -41,7 +41,7 @@ from task_registry import TaskRegistry, TaskMeta
 
 task_id = "arena"
 label = "竞技场"
-description = "按名单自动选对手挑战，票数耗尽即止"
+description = "排除好友和公会成员，按名单选对手至票尽"
 
 # ── 判据常量 ────────────────────────────────────────────────
 _STALL_MAX: int = 10            # 未知画面连续帧兜底
