@@ -45,6 +45,7 @@ SUITES = {
     'tests/test_artistic_text_fallback.py': ({1, 2, 3}, False),
     'tests/test_res_path.py': ({1, 2, 3}, False),
     'tests/test_chest_region.py': ({1, 2, 3}, False),
+    'tests/test_switch_btn_region.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
@@ -175,6 +176,8 @@ CHANGE_MAP = [
     ('tasks/catalog.py', ['tests/test_task_scheduler_smoke.py',
                           'tests/test_gui_drawer_smoke.py',
                           'tests/test_task_description_consistency.py']),
+    # v2.3.47 > 按钮搜索区域（竖屏放宽）
+    ('afk_bot/auto_farm/formation.py', ['tests/test_switch_btn_region.py']),
     # v2.3.46 挂机宝箱/沙漏区域（横竖屏归一）
     ('tasks/auto_farm.py', ['tests/test_chest_region.py',
                             'tests/test_auto_farm_stop_residue.py']),
