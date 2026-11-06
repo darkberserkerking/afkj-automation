@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 
 try:
     import certifi  # noqa: E402  CA 证书（HTTPS 必需，见 afk_bot/updater.py）
@@ -11,7 +12,22 @@ except Exception:
 _a = Analysis(
     ['afk_gui.py'],
     pathex=[],
-    binaries=[],
+    binaries=[
+        # v2.3.55：显式钉死 OpenSSL DLL（真机 2026-11-07 实锤）——
+        # PyInstaller 依赖扫描曾从 PATH 上其它程序抓来旧版 OpenSSL
+        # （libssl 1.0MB / libcrypto 5.8MB），而 _ssl.pyd 按本环境
+        # OpenSSL 3.5（libssl 1.3MB / libcrypto 7.3MB）编译 → 错配组合
+        # 下 exe 内证书解析全线异常 [ASN1: NOT_ENOUGH_DATA]（0/81 张可载）。
+        # 后写覆盖先写（TOC 同名去重保留后者），保证打进对的版本。
+        *([
+            (os.path.join(os.path.dirname(sys.executable),
+                          'Library', 'bin', 'libcrypto-3-x64.dll'), '.'),
+            (os.path.join(os.path.dirname(sys.executable),
+                          'Library', 'bin', 'libssl-3-x64.dll'), '.'),
+        ] if os.path.isfile(os.path.join(
+            os.path.dirname(sys.executable),
+            'Library', 'bin', 'libcrypto-3-x64.dll')) else []),
+    ],
     datas=[
         ('model/ocr', 'model/ocr'),   # MaaOCR 模型文件（det.onnx + rec.onnx + keys.txt）
         ('maa_ocr.py', '.'),           # MaaOCR 引擎
@@ -85,7 +101,7 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动化工具v2.3.54',
+    name='AFKJ自动化工具v2.3.55',
     icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,

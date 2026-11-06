@@ -183,36 +183,50 @@ def _ssl_context():
     try:
         ctx = ssl.create_default_context()   # 首选：系统默认证书库
         _load_certifi(ctx)
+        _diag(f'  ssl ctx tier1(默认) OK CAs={len(ctx.get_ca_certs())}')
         return ctx
     except Exception as _e:                              # noqa: BLE001
         _diag(f'  ssl ctx default FAIL: {type(_e).__name__}: {_e}')
     try:
         ctx = _ssl_context_windows_tolerant()  # 次选：逐证书容错加载
         _load_certifi(ctx)
+        _diag(f'  ssl ctx tier2(容错) OK CAs={len(ctx.get_ca_certs())}')
         return ctx
     except Exception as _e:                              # noqa: BLE001
         _diag(f'  ssl ctx tolerant FAIL: {type(_e).__name__}: {_e}')
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # 兜底：仅 certifi
     _load_certifi(ctx)
+    _diag(f'  ssl ctx tier3(仅certifi) CAs={len(ctx.get_ca_certs())}')
     return ctx
 
 
 def _load_certifi(ctx) -> None:
-    """追加 certifi CA 到 ctx（失败不中断，仍有系统证书库兜着）。"""
+    """追加 CA bundle 到 ctx（v2.3.55：不依赖 import certifi + 留痕）。"""
+    path = None
     try:
         import certifi
-        # 打包后 certifi 的数据文件在 _MEIPASS/certifi/cacert.pem
         path = certifi.where()
         if not os.path.isfile(path):
-            base = getattr(sys, '_MEIPASS', '')
-            cand = os.path.join(base, 'certifi', 'cacert.pem')
+            path = None
+    except Exception:                                    # noqa: BLE001
+        path = None
+    if path is None:
+        # 打包后 certifi 的数据文件在 _MEIPASS/certifi/cacert.pem
+        base = getattr(sys, '_MEIPASS', '')
+        for cand in (os.path.join(base, 'certifi', 'cacert.pem'),
+                     os.path.join(base, 'cacert.pem')):
             if os.path.isfile(cand):
                 path = cand
-        if os.path.isfile(path):
-            ctx.load_verify_locations(cafile=path)
-    except Exception:
-        # certifi 不可用时至少还有系统证书库，不额外降级
-        pass
+                break
+    if path is None:
+        _diag('  CA bundle: NOT FOUND（exe 里没带证书包）')
+        return
+    try:
+        ctx.load_verify_locations(cafile=path)
+        _diag(f'  CA bundle: {os.path.basename(os.path.dirname(path))}'
+              f'/{os.path.basename(path)} → ctx CAs={len(ctx.get_ca_certs())}')
+    except Exception as _e:                              # noqa: BLE001
+        _diag(f'  CA bundle FAIL: {path}: {type(_e).__name__}: {_e}')
 
 
 def _ssl_context_windows_tolerant():
@@ -222,10 +236,12 @@ def _ssl_context_windows_tolerant():
     一次性 load —— 一张坏证书全盘皆输。这里逐张 load，解析失败的
     记数跳过；一无可读才抛（交由上层降级到仅 certifi）。
     """
+    import base64
     import ssl
     from ssl import Purpose
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     loaded = failed = 0
+    first_err = ''
     for storename in ('ROOT', 'CA'):
         try:
             store_certs = ssl.enum_certificates(storename)
@@ -237,12 +253,21 @@ def _ssl_context_windows_tolerant():
                 continue
             if trust is not True and Purpose.SERVER_AUTH.oid not in trust:
                 continue
+            # v2.3.55：转成 PEM 文本再喂 —— exe 错配 OpenSSL 时
+            # cadata=DER 路径全炸（0/81），PEM 路径（cafile 同源）
+            # 历史上一直可用（v2.2.23 实证）
+            pem = ('-----BEGIN CERTIFICATE-----\n'
+                   + base64.encodebytes(cert).decode('ascii')
+                   + '-----END CERTIFICATE-----\n')
             try:
-                ctx.load_verify_locations(cadata=cert)
+                ctx.load_verify_locations(cadata=pem)
                 loaded += 1
-            except Exception:                            # noqa: BLE001
+            except Exception as _e:                      # noqa: BLE001
                 failed += 1
-    _diag(f'  win store certs: loaded={loaded} skipped={failed}')
+                if not first_err:
+                    first_err = f'{type(_e).__name__}: {_e}'
+    _diag(f'  win store certs: loaded={loaded} skipped={failed}'
+          + (f' first_err={first_err}' if first_err else ''))
     if loaded == 0:
         raise RuntimeError('Windows 证书库一无可读')
     return ctx
