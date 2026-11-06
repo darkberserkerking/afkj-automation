@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -326,6 +327,20 @@ def _build_opener(proxy_map: Optional[Dict[str, str]]):
     return urllib.request.build_opener(*handlers)
 
 
+def _net_fail_msg(attempts: List[str], ports, last_exc) -> str:
+    """统一构造带内联诊断的失败消息（v2.3.53 收口，所有出口共用）。
+
+    诊断直接内联进错误提示，不依赖日志文件能否写成（v2.3.52 教训：
+    日志路径不可写时用户什么都看不到）。
+    """
+    return (
+        '检查更新失败：无法连接 GitHub'
+        f'｜已尝试：{"、".join(attempts) or "无"}'
+        f'｜探测端口：{ports or "无"}'
+        f'｜{_friendly_net_hint(last_exc)}'
+        f'｜诊断日志：{_diag_path()}')
+
+
 def _default_fetch(url: str, token: str, timeout: float) -> bytes:
     """按优先级尝试：系统/环境代理 → 直连 → 本机探测到的代理。
 
@@ -368,45 +383,54 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
     except Exception as _e:                                # noqa: BLE001
         _diag(f'  env proxy FAIL: {type(_e).__name__}: {_e}')
 
-    # ① 系统证书/环境变量代理（urllib 默认）
-    got = _try('系统代理', _build_opener(None))
-    if got is not None:
-        _diag('--- OK via 系统代理 ---')
-        return got
-
-    # ② 直连
-    got = _try('直连', _build_opener({}))
-    if got is not None:
-        _diag('--- OK via 直连 ---')
-        return got
-
-    # ③ 本机探测到的代理端口（探测本身失败也不中断）
+    # v2.3.53：三级尝试整体兜底 —— `_build_opener(...)` 在 `_try` 的
+    # 实参位置求值，位于 `_try` 保护网之外；`_ssl_context()` 若在此抛裸
+    # SSL/OS 异常，会绕过下面的诊断 raise（真机 v2.3.52 复现：用户只看到
+    # 笼统的「网络连接被中断」）。任何裸异常一律转成带内联诊断的
+    # UpdateError，绝不外泄。
+    ports: List[int] = []
     try:
-        ports = _probe_local_proxies()
-    except Exception as _e:                                # noqa: BLE001
-        ports = []
-        _diag(f'  probe FAIL: {type(_e).__name__}: {_e}')
-    _diag(f'  probed local proxy ports: {ports or "无"}')
-    for port in ports:
-        proxy = f'http://127.0.0.1:{port}'
-        got = _try(f'本地代理:{port}',
-                   _build_opener({'http': proxy, 'https': proxy}))
+        # ① 系统证书/环境变量代理（urllib 默认）
+        got = _try('系统代理', _build_opener(None))
         if got is not None:
-            _LOGGER_INFO(f'检查更新：经本机代理 {port} 成功')
-            _diag(f'--- OK via 本地代理 {port} ---')
+            _diag('--- OK via 系统代理 ---')
             return got
+
+        # ② 直连
+        got = _try('直连', _build_opener({}))
+        if got is not None:
+            _diag('--- OK via 直连 ---')
+            return got
+
+        # ③ 本机探测到的代理端口（探测本身失败也不中断）
+        try:
+            ports = _probe_local_proxies()
+        except Exception as _e:                            # noqa: BLE001
+            ports = []
+            _diag(f'  probe FAIL: {type(_e).__name__}: {_e}')
+        _diag(f'  probed local proxy ports: {ports or "无"}')
+        for port in ports:
+            proxy = f'http://127.0.0.1:{port}'
+            got = _try(f'本地代理:{port}',
+                       _build_opener({'http': proxy, 'https': proxy}))
+            if got is not None:
+                _LOGGER_INFO(f'检查更新：经本机代理 {port} 成功')
+                _diag(f'--- OK via 本地代理 {port} ---')
+                return got
+    except UpdateError:
+        raise                      # 已带诊断，透传
+    except Exception as _e:                                    # noqa: BLE001
+        # 裸异常（如 _ssl_context/_build_opener 抛错）→ 记录后统一走
+        # 内联诊断出口，不给 `_fetch_with_retry` 二次包装的机会
+        attempts.append(f'内部({type(_e).__name__})')
+        timing.append(f'内部={type(_e).__name__}')
+        _diag(f'  UNCAUGHT in tiers: {type(_e).__name__}: {_e}')
+        last_exc = last_exc or _e
 
     _diag(f'--- ALL FAILED | {timing} ---')
     # 全部失败 → 异常消息**内联全部诊断**（不依赖日志文件能否写成）
-    _hint = _friendly_net_hint(last_exc)
-    if '已尝试' in _hint:          # 防已被包装过（双保险）
-        raise UpdateError(_hint)
     raise UpdateError(
-        '检查更新失败：无法连接 GitHub'
-        f'｜已尝试：{"、".join(attempts) or "无"}'
-        f'｜探测端口：{ports or "无"}'
-        f'｜{_hint}'
-        f'｜诊断日志：{_diag_path()}')
+        _net_fail_msg(attempts, ports, last_exc))
 
 
 # ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────
@@ -446,6 +470,13 @@ def _friendly_net_hint(exc: Optional[BaseException]) -> str:
         # 已是 `_default_fetch` 拼好的完整诊断（含路径/端口/原因）→ 原样返回
         return _raw
     text: str = f'{type(exc).__name__}: {exc}'.lower()
+    if isinstance(exc, ssl.SSLError):
+        # v2.3.53：按「类型」兜底 —— 任意 SSLError 都是 TLS 层故障，
+        # 不依赖报错文本进词表（真机：SSLV3_ALERT_HANDSHAKE_FAILURE
+        # 不在词表 → 被原样吐给用户）
+        return ('网络连接被中断（TLS 握手未完成）。常见于直连 GitHub 不稳定：'
+                '请稍后重试；若已开代理，请确认代理对本程序生效'
+                '（双击启动不继承命令行里的代理环境变量）')
     if 'not_enough_data' in text or ('asn1' in text and '_ssl' in text):
         return ('网络连接被中断（TLS 握手未完成）。常见于直连 GitHub 不稳定：'
                 '请稍后重试；若已开代理，请确认代理对本程序生效'
@@ -501,10 +532,12 @@ def check_latest(
                     time.sleep(_NET_RETRY_WAIT * (attempt + 1))
                     continue
                 raise UpdateError(
-                    f'检查更新失败：{_friendly_net_hint(e)}') from e
+                    f'检查更新失败：{_friendly_net_hint(e)}'
+                    f'｜诊断日志：{_diag_path()}') from e
         # 循环必然 return 或 raise；此行仅为类型完整
         raise UpdateError(
-            f'检查更新失败：{_friendly_net_hint(last_exc)}')
+            f'检查更新失败：{_friendly_net_hint(last_exc)}'
+            f'｜诊断日志：{_diag_path()}')
 
     try:
         raw = _fetch_with_retry()

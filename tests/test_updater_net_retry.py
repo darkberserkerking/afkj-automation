@@ -129,6 +129,41 @@ check('4c 本次报障文案被翻译成中文指引',
 check('4d 超时错误有独立提示',
       '超时' in U._friendly_net_hint(TimeoutError('timed out')))
 
+# ── 6 系：v2.3.53 `_default_fetch` 裸异常兜底（真机 v2.3.52 复现）──
+# `_build_opener(None)` 在 `_try` 实参位置求值，位于保护网之外；
+# `_ssl_context()` 抛裸 SSL 异常时曾绕过内联诊断出口，用户只看到
+# 笼统的「网络连接被中断」。修复后任何裸异常都必须转成带
+# 「已尝试／内部／诊断日志」的 UpdateError。
+import ssl as _ssl                                        # noqa: E402
+
+_diag_log_6 = os.path.join(
+    os.environ.get('TEMP', os.getcwd()), 'afkj_net_diag_selftest6.log')
+if os.path.isfile(_diag_log_6):
+    os.remove(_diag_log_6)
+os.environ['AFKJ_NET_DIAG_PATH'] = _diag_log_6
+_old_bo = U._build_opener
+
+
+def _bo_boom(_pm):
+    raise _ssl.SSLError('SSLV3_ALERT_HANDSHAKE_FAILURE')
+
+
+U._build_opener = _bo_boom
+try:
+    U._default_fetch('https://api.github.com/x', '', timeout=2)
+    check('6a 裸 SSL 异常必须转成 UpdateError（不该走到这）', False)
+except U.UpdateError as _e:
+    _m6 = str(_e)
+    check('6a 裸 SSL 异常转 UpdateError 而非外泄',
+          '检查更新失败' in _m6, _m6[:50])
+    check('6b 消息内联「已尝试」诊断', '已尝试' in _m6)
+    check('6c 消息标注裸异常来源「内部」', '内部' in _m6)
+    check('6d 消息含「诊断日志」路径', '诊断日志' in _m6)
+    check('6e TLS 瞬断被翻译成中文指引', 'TLS' in _m6)
+finally:
+    U._build_opener = _old_bo
+    os.environ.pop('AFKJ_NET_DIAG_PATH', None)
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')
