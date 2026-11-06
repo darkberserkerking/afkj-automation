@@ -330,6 +330,15 @@ class BattleMonitor:
                         ):
                             pos, btn_text = (_cx, _cy), _t
                             break
+                    # v2.3.41（真机竖屏 750x1334）：结算页底部只有
+                    # 「幻灵挑战」横幅（用户确认点它回备战界面），没有
+                    # 独立「挑战」按钮 → 旧条件 `'幻灵' not in _t` 把它
+                    # 排除，白走到「未找到按钮」再点空白（全屏页点空白无效）。
+                    if pos is None:
+                        for _cy, _cx, _t, _c, *_rest in items:
+                            if _c >= 0.5 and '幻灵挑战' in _t:
+                                pos, btn_text = (_cx, _cy), _t
+                                break
                     if pos:
                         self._log(
                             f'[信息] 逐次模式结算'
@@ -356,10 +365,21 @@ class BattleMonitor:
                 continue
 
             # 已回到挂机关卡页
-            if any(
-                '幻灵挑战' in t for t in texts
-            ) or any(
-                t == '挑战' for t in texts
+            # v2.3.41（真机竖屏）：结算页底部也有「幻灵挑战」横幅 →
+            # 单靠该词判「已回挂机关卡」每轮都假成功 return True，
+            # 主循环再判 result → 死循环 42 轮（20:31 现场）。
+            # 必须排除结算页特征词后才认。
+            _result_marks: Tuple[str, ...] = (
+                '挂机收益提升',      # 结算页特有副标题（实测 conf .99）
+                '战斗胜利',
+                '赛季挂机进度',
+            )
+            _on_result_page: bool = any(
+                k in t for k in _result_marks for t in texts
+            )
+            if not _on_result_page and (
+                any('幻灵挑战' in t for t in texts)
+                or any(t == '挑战' for t in texts)
             ):
                 self._log('[成功] 已回到挂机关卡')
                 return True
