@@ -76,15 +76,21 @@ label = "更新装备"
 description = "锻造并穿戴六职业赛季装备，无可锻造即止"
 
 # ── 模板（RGBA 圆外透明，走 maskedNCC；路径必须绝对，防 CWD 漂移）──
+# v2.4.5：改用 **内缩版** 模板（*_inner.png，alpha 边缘腐蚀 ~4px）。
+# 真机 2026-11-07 12:31 实证：圆标边缘被「!」可装备角标 / 等级横幅遮挡时，
+# 原模板 6 职业中 4 个主界面分数跌破 0.70（辅助 0.687 / 法师 0.533 /
+# 射手 0.637 / 战士 0.559）→ 任务卡死「圆标模板未命中」。
+# 内缩 mask 只保留中心稳定圆区：主界面 6/6 ≥0.78、底部 tab 6/6 ≥0.87
+# （用户两张真机截图差分实测）。原模板保留在库中可对照复验。
 _TPL_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'templates')
 CLASSES: Tuple[Tuple[str, str], ...] = (
-    ('辅助', 'season_class_support.png'),
-    ('法师', 'season_class_mage.png'),
-    ('战士', 'season_class_warrior.png'),
-    ('游侠', 'season_class_ranger.png'),
-    ('射手', 'season_class_marksman.png'),
-    ('坦克', 'season_class_tank.png'),
+    ('辅助', 'season_class_support_inner.png'),
+    ('法师', 'season_class_mage_inner.png'),
+    ('战士', 'season_class_warrior_inner.png'),
+    ('游侠', 'season_class_ranger_inner.png'),
+    ('射手', 'season_class_marksman_inner.png'),
+    ('坦克', 'season_class_tank_inner.png'),
 )
 CLASS_TPL: dict = {zh: os.path.join(_TPL_DIR, fn) for zh, fn in CLASSES}
 CLASS_ORDER: Tuple[str, ...] = tuple(zh for zh, _ in CLASSES)

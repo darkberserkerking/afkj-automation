@@ -41,6 +41,7 @@ SUITES = {
     'tests/test_gui_drawer_smoke.py': ({1, 2, 3}, True),      # Tk 独占
     'tests/test_task_description_consistency.py': ({1, 2, 3}, False),  # 全量文案一致性
     'tests/test_season_equipment_dryrun.py': ({1, 2, 3}, False),
+    'tests/test_season_class_tpl_inner.py': ({1, 2, 3}, False),   # v2.4.5 圆标内缩模板
     'tests/test_portrait_result_close.py': ({1, 2, 3}, False),
     'tests/test_artistic_text_fallback.py': ({1, 2, 3}, False),
     'tests/test_res_path.py': ({1, 2, 3}, False),
@@ -204,6 +205,7 @@ CHANGE_MAP = [
     # v2.3.37 赛季装备锻造
     ('tasks/season_equipment.py',
      ['tests/test_season_equipment_dryrun.py',
+      'tests/test_season_class_tpl_inner.py',
       'tests/test_task_scheduler_smoke.py']),
     ('tasks/screen_registry.py',
      ['tests/test_nav_edges_coverage.py',
