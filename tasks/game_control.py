@@ -79,8 +79,32 @@ class StartGameTask(BaseTask):
             # 截图失败（窗口刚出现/被遮挡）→ 保守当未就绪，由 120s 上限兜底
             return True
         from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY
-        return GLOBAL_SCREEN_REGISTRY.detect(items) in (
-            'unknown', 'nav.loading')
+        _sid: str = GLOBAL_SCREEN_REGISTRY.detect(items)
+        if _sid in ('unknown', 'nav.loading'):
+            # v2.4.4：等待期诊断（节流 ~15s 一次）。真机 2026-11-07 教训：
+            # 冷启动时 bot 句柄未绑定 → ocr_screen **静默返回空** →
+            # detect([])=unknown → 120s 全程只刷「仍在加载界面」，
+            # 分不清是黑屏还是截图链路坏。把 OCR 看到的内容 +
+            # 句柄绑定状态显式打出来。
+            self._wait_diag_n: int = getattr(self, '_wait_diag_n', 0) + 1
+            if self._wait_diag_n % 3 == 1:
+                # 防御式解包：items 元素可能非 6 元组（detect 有 try 保护，
+                # 这里是新诊断代码，不能比主判据更脆）
+                _texts = []
+                for _it in items:
+                    if (isinstance(_it, tuple) and len(_it) >= 4
+                            and isinstance(_it[2], str)
+                            and isinstance(_it[3], (int, float))
+                            and _it[3] >= 0.4):
+                        _texts.append(_it[2])
+                _texts = _texts[:5]
+                _hwnd = getattr(self.bot, '_hwnd', None)
+                self.log(
+                    f"[诊断] 画面未识别（{_sid}，第 {self._wait_diag_n} 次）｜"
+                    f"句柄={'已绑定' if _hwnd else '未绑定✗'}｜"
+                    f"OCR {len(items)} 条：{_texts or '空'}"
+                )
+        return _sid in ('unknown', 'nav.loading')
 
     def summary(self) -> str:
         return "检测并启动游戏客户端（已运行则跳过）"
@@ -143,6 +167,26 @@ class StartGameTask(BaseTask):
                 _win_logged = True
                 self.log(f"[信息] 游戏窗口已出现（{int(waited)}s），"
                          "等待画面就绪…")
+                # v2.4.4 根因修复：**立即绑定新窗口句柄**。冷启动时
+                # 截图器 _hwnd 仍是 None（App 启动时游戏未运行，无人
+                # 绑定）→ ocr_screen 静默返回空 → detect([])=unknown →
+                # 永远「仍在加载界面」。其余任务都在 run() 开头
+                # find_and_focus()，唯独本任务此前没有。
+                try:
+                    _h = self.bot.find_and_focus()
+                except Exception as _e:
+                    _h = None
+                    self.log(f"[警告] 绑定游戏窗口异常：{_e}")
+                if _h:
+                    self.log(f"[成功] 已绑定游戏窗口 hwnd={_h}")
+                else:
+                    self.log("[警告] 未能绑定游戏窗口（每轮继续重试）")
+            # v2.4.4：句柄仍未绑定（首次绑定失败/窗口重启）→ 每轮重试
+            if getattr(self.bot, '_hwnd', None) is None:
+                try:
+                    self.bot.find_and_focus()
+                except Exception:
+                    pass
             if is_game_ready(self.bot):
                 # v2.3.16：尺寸有效但可能仍在初始化加载页（OCR 实测
                 # 「正在初始化游戏（5/14）」conf≥0.96）→ 清零 streak 继续等，

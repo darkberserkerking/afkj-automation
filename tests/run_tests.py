@@ -52,6 +52,7 @@ SUITES = {
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
     'tests/test_startup_loading.py': ({1, 2, 3}, False),
+    'tests/test_startup_bind_hwnd.py': ({1, 2, 3}, False),   # v2.4.4 冷启动句柄绑定
     'tests/test_battle_count_consistency.py': ({1, 2, 3}, False),
     'tests/test_rec_empty_switch.py': ({1, 2, 3}, False),   # v2.4.3 推荐阵容为空
     'tests/test_auto_farm_stop_residue.py': ({1, 2, 3}, False),
@@ -168,7 +169,8 @@ CHANGE_MAP = [
     ('tasks/friend_gift.py', ['tests/test_friend_gift_dryrun.py']),
     ('tasks/dream_realm.py', ['tests/test_dream_realm_dryrun.py']),
     ('tasks/game_control.py', ['tests/test_game_control_dryrun.py',
-                               'tests/test_startup_loading.py']),
+                               'tests/test_startup_loading.py',
+                               'tests/test_startup_bind_hwnd.py']),
     ('tasks/global_nav.py', ['tests/test_startup_loading.py',
                              'tests/test_global_nav_matrix.py']),
     ('tasks/game_launcher.py', ['tests/test_game_control_dryrun.py']),

@@ -193,8 +193,9 @@ try:
     t9, logs9 = make_task(StartGameTask, bot=_FBot())
     t9._sleep = lambda *a, **k: None          # 不真等（本测试未装虚拟时钟）
     r9 = t9.run()
-    check('9c 就绪后调用了 find_and_focus 激活窗口（用户 17:47 诉求）',
-          len(_focus) == 1, f'calls={len(_focus)}')
+    check('9c 就绪后调用了 find_and_focus 激活窗口（用户 17:47 诉求；'
+          'v2.4.4 起窗口出现时还会先绑定一次，故 >=2）',
+          len(_focus) >= 2, f'calls={len(_focus)}')
     check('9d 激活成功有明确日志（可追溯）',
           any('已激活游戏窗口' in m for m in logs9),
           str([m for m in logs9 if '激活' in m][:1]))
