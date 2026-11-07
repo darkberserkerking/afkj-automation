@@ -31,6 +31,24 @@ from afk_bot.infra.timing import sleep_interruptible
 # 含「挑战」文本（结算/再战按钮都在底部 ✓；备战界面的「幻灵挑战」标题在顶部 ✗）。
 _CHALLENGE_BTN_RY_MIN: float = 0.85
 
+# ── 推荐阵容为空判据（v2.4.3，用户 2026-11-07 真机截图）──────────────
+# 真机现象：推荐阵容页顶部灰字「暂未有符合条件的录相」，同屏「一键采用」
+# 按钮**置灰**。此时点按钮毫无反应，旧流程空转 5 次重试后照样按 F 下场 ——
+# 等于拿默认阵容硬打，与「推荐阵容用完 → 切挑战类型」的既有策略不一致。
+# 用户要求：一个阵容都没有 → 直接切换幻灵推图/普通推图。
+#
+# 判据用**完整句式**（手册铁律 13）：裸「暂无」会误伤背包/邮件等空列表提示；
+# 「录相/录像」两种读法都收（真机原图写「录相」，OCR 偶读成「录像」）。
+_REC_EMPTY_PHRASES: Tuple[str, ...] = (
+    '暂未有符合条件的录相',
+    '暂未有符合条件的录像',
+    '暂无符合条件的录相',
+    '暂无符合条件的录像',
+)
+# 次级判据：OCR 掉字（如「暂未有符合条�的录相」）时的组合判 ——
+# 必须同句同时出现「暂未」和「符合」，避免单词误伤。
+_REC_EMPTY_TOKENS: Tuple[str, ...] = ('暂未', '符合')
+
 class FormationManager:
     """阵容管理器 — 切换阵容、备战流程、挑战按钮点击。
 
@@ -100,6 +118,8 @@ class FormationManager:
 
         # 状态变量
         self._formation_idx: int = 0
+        # v2.4.3：本次备战检测到「推荐阵容为空」——上层据此切换挑战类型
+        self._no_recommended_formation: bool = False
 
     # ── 内部辅助 ────────────────────────────────────────────────
 
@@ -315,23 +335,58 @@ class FormationManager:
             return True
         return False
 
+    def detect_recommend_empty(
+        self, items: Optional[List[Tuple]] = None
+    ) -> bool:
+        """检测阵容面板是否「一套推荐阵容都没有」。
+
+        真机（2026-11-07 用户截图）：顶部灰字「暂未有符合条件的录相」，
+        「一键采用」置灰。此时点按钮无效，应切挑战类型而非硬打。
+
+        Args:
+            items: 已有 OCR 结果（None 则现取一帧）
+
+        Returns:
+            bool: True = 推荐阵容为空
+        """
+        if items is None:
+            items = self._screen.ocr_screen()
+        for _cy, _cx, _t, _c, *_ in items:
+            if not isinstance(_t, str) or not isinstance(_c, (int, float)):
+                continue
+            if _c < 0.3:
+                continue
+            if any(p in _t for p in _REC_EMPTY_PHRASES):
+                return True
+            if all(tok in _t for tok in _REC_EMPTY_TOKENS):
+                return True
+        return False
+
     # ── 备战与开始战斗 ──────────────────────────────────────────
 
     def prepare_and_start_battle(
-        self, switch_count: int = 0, battle_mode: Optional[str] = None
+        self,
+        switch_count: int = 0,
+        battle_mode: Optional[str] = None,
+        allow_empty_rec: bool = False,
     ) -> bool:
         """备战界面操作：通关阵容 → [>×N] → 一键采用 → 战斗。
 
         Args:
             switch_count: 需要点 '>' 的次数（0=不切换，N=点N次切换到第N+1套）
             battle_mode: 兼容参数，暂不使用（统一走OCR找"战斗"/"自动挑战"按钮）
+            allow_empty_rec: True = 推荐阵容为空时照常下场（上层兜底：
+                两种挑战都没有推荐阵容时避免无限来回切换）
 
         Returns:
-            bool: True 表示成功开始战斗，False 表示失败
+            bool: True 表示成功开始战斗；False 表示失败，或推荐阵容为空
+                需要上层切换挑战类型（见 _no_recommended_formation）
         """
         # 每次备战都重置"切换阵容用完"标志，
         # 避免 switch_count=0 时不调用 switch_formation 导致残留上次的值
         self._switch_exhausted = False
+        # v2.4.3：同理重置"推荐阵容为空"标志
+        self._no_recommended_formation = False
         log_msg: str = '备战：通关阵容'
         if switch_count > 0:
             log_msg += f'→>"×{switch_count}→'
@@ -392,6 +447,15 @@ class FormationManager:
                 return False
             if not _panel_already_open or attempt > 0 or switch_count > 0:
                 items = self._screen.ocr_screen()
+            # v2.4.3：推荐阵容为空 → 按钮置灰点不动，别空转重试、也别下场；
+            # 打标志后立即返回，由上层切换挑战类型
+            if not allow_empty_rec and self.detect_recommend_empty(items):
+                self._no_recommended_formation = True
+                self._log(
+                    '[信息] 推荐阵容为空（暂未有符合条件的录相），'
+                    '跳过一键采用'
+                )
+                return False
             pos = self._recognizer.find_text(
                 items, '一键采用', min_conf=0.3
             )

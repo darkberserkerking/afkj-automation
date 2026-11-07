@@ -149,6 +149,10 @@ class AFKBotCore:
 
         # 未推进计数
         self.manual_no_progress_count: int = 0
+        # v2.4.3：连续「推荐阵容为空」切换挑战类型的次数。
+        # 置 1 后若另一种挑战也空 → 视为两种都空，退回默认阵容照常战斗，
+        # 避免两种模式互相踢皮球（死循环）。
+        self._empty_rec_switch_count: int = 0
         # 战斗开始时间戳（用于 unknown 阶段防护）
         self._round_start_time: float = 0.0
         # result 循环计数器
@@ -674,6 +678,8 @@ class AFKBotCore:
         stats: Dict[str, Any] = self.stats
         stats['total_battles'] = stats.get('total_battles', 0) + 1
         if won:
+            # v2.4.3：推进成功 → 重置"推荐阵容为空"切换计数
+            self._empty_rec_switch_count = 0
             if mode == 'huanling':
                 stats['huanling_wins'] = stats.get('huanling_wins', 0) + 1
             else:
@@ -954,6 +960,7 @@ class AFKBotCore:
                 if result == 'victory':
                     # 胜利后重置推荐阵容用完标志（新关卡推荐阵容可能变化）
                     self._formation_exhausted = False
+                    self._empty_rec_switch_count = 0   # v2.4.3
                     if prev_mode == 'huanling':
                         stats['huanling_wins'] = (
                             stats.get('huanling_wins', 0) + 1
@@ -1186,6 +1193,50 @@ class AFKBotCore:
                         switch_count=0,
                         battle_mode=self.battle_mode,
                     )
+                # ── v2.4.3：推荐阵容为空 → 直接切换挑战类型 ──
+                # 面板提示「暂未有符合条件的录相」、「一键采用」置灰，
+                # 点按钮无效也不会下场。此时不等待战斗，立刻切过去。
+                _no_rec: bool = bool(
+                    getattr(
+                        self._formation_manager,
+                        '_no_recommended_formation',
+                        False,
+                    )
+                )
+                if _no_rec and self._empty_rec_switch_count == 0:
+                    self._empty_rec_switch_count = 1
+                    self._log(
+                        'warn',
+                        '[阵容] 推荐阵容为空（暂无符合条件阵容），'
+                        '切换挑战类型'
+                    )
+                    self._formation_manager.navigate_to_other_challenge(
+                        current_mode
+                    )
+                    current_mode = (
+                        'normal' if current_mode == 'huanling'
+                        else 'huanling'
+                    )
+                    self.manual_no_progress_count = 0
+                    formation_idx = 0
+                    self._formation_exhausted = False
+                    self._round_start_time = time.time()
+                    continue
+                if _no_rec:
+                    # 另一种挑战也没有推荐阵容 → 别再互踢，用当前阵容照常打
+                    self._log(
+                        'warn',
+                        '[阵容] 两种挑战均无推荐阵容，'
+                        '改用当前默认阵容继续战斗'
+                    )
+                    self._empty_rec_switch_count = 0
+                    self._formation_manager.prepare_and_start_battle(
+                        switch_count=0,
+                        battle_mode=self.battle_mode,
+                        allow_empty_rec=True,
+                    )
+                else:
+                    self._empty_rec_switch_count = 0
                 # 合并 switch_formation 内的检测结果：
                 # 切换阵容时若 > 按钮消失（已到最后一套）→ 标记推荐阵容用完
                 self._formation_exhausted = (
