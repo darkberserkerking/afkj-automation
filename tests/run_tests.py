@@ -60,6 +60,7 @@ SUITES = {
     'tests/test_goddess_trial_dryrun.py': ({2, 3}, False),
     'tests/test_guild_battle_dryrun.py': ({2, 3}, False),
     'tests/test_tianqiong_trial_dryrun.py': ({2, 3}, False),
+    'tests/test_tianqiong_challenge_conf.py': ({1, 2, 3}, False),   # v2.4.6 挑战低分漏检
     'tests/test_guild_result_matrix.py': ({1, 2, 3}, False),
     'tests/test_bug_report.py': ({1, 2, 3}, True),
     'tests/test_afk_limit_confirm.py': ({1, 2, 3}, False),
@@ -126,7 +127,8 @@ CHANGE_MAP = [
                             'tests/test_orb_reset_on_end.py',
                             'tests/test_imprint_pick_blacklist.py']),
     ('tasks/guild_battle.py', ['tests/test_guild_battle_dryrun.py']),
-    ('tasks/tianqiong_trial.py', ['tests/test_tianqiong_trial_dryrun.py']),
+    ('tasks/tianqiong_trial.py', ['tests/test_tianqiong_trial_dryrun.py',
+                                  'tests/test_tianqiong_challenge_conf.py']),
     ('afk_bot/auto_farm/loop.py', ['tests/test_afk_limit_confirm.py',
                                    'tests/test_battle_count_consistency.py',
                                    'tests/test_rec_empty_switch.py',

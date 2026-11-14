@@ -59,7 +59,20 @@ _RESULT_WORDS: Tuple[str, ...] = (
 )
 
 _TEXT_MIN_CONF: float = 0.7      # 文本判据阈值（实测都 ≥0.88）
-_BTN_MIN_CONF: float = 0.85      # 按钮判据阈值（挑战 0.988）
+_BTN_MIN_CONF: float = 0.85      # 其它按钮判据阈值（静态截图实测）
+# ── v2.4.6（真机 2026-11-14 09:29 用户日志实证）──────────────────
+# 「挑战！」在**实时帧**只有 conf **0.78**（日志 2/3 帧候选：
+# 「挑战！(854,753,0.78)」），_BTN_MIN_CONF 的 0.85 是按**放大后静态
+# 截图**的 0.988 定的 → 真机被挡掉，连续 3 帧找不到按钮 → 误判
+# 「今日已无可挑战层」并标记本塔通关，实际 124 层黄色「挑战！」就在屏上。
+# 「出发！」早踩过同类坑（v2.3.23 已单独放宽到 0.6），这里对齐同一依据。
+# **同一词在「判画面」与「点按钮」两处必须同阈值**，否则会重演
+# 「认得出是塔内页、却点不到按钮」的死穴。
+_CHALLENGE_MIN_CONF: float = 0.6
+# 更弱的「挑战」痕迹：区分「按钮闪烁 / OCR 抖动」与「本塔真打完」。
+# 找不到按钮 ≠ 已完成（手册铁律 16：未就绪类判定要正向证据）。
+_CHALLENGE_WEAK_CONF: float = 0.45
+_NO_CHALLENGE_HARD_MAX: int = 8   # 弱命中最多额外等 8 轮（有界，防真打完卡死）
 # v2.3.23：「出发」只有两个字，短文本 OCR 置信度波动大（实测截图 0.957，
 # 但真机实时识别可能偏低）→ 单独放宽到 0.6，避免漏检后误判「今日无开放塔」。
 _GO_MIN_CONF: float = 0.6
@@ -253,8 +266,10 @@ class TianqiongTrialTask(BaseTask):
         「塔名 + 已通关/还差N层」判定，避免误落 unknown 后按 ESC 脱离。
         """
         texts = self._texts(items, _TEXT_MIN_CONF)
+        # v2.4.6：判定「挑战」与 _find_challenge 定位按钮**必须同阈值**
+        action_texts = self._texts(items, _CHALLENGE_MIN_CONF)
         has_locked = any(_LOCKED_WORD in t for t in texts)
-        has_action = (any(_norm(t) == _CHALLENGE_WORD for t in texts)
+        has_action = (any(_norm(t) == _CHALLENGE_WORD for t in action_texts)
                       or any(_CLEARED_WORD in t for t in texts))
         if has_locked and has_action:
             return True
@@ -345,7 +360,23 @@ class TianqiongTrialTask(BaseTask):
         去标点后**全等** → 天然排除「挑战奖励：」（归一见「挑战奖励」）
         与「继续挑战 / 再次挑战」（归一见完整四字）。
         """
-        return self._find_exact(items, _CHALLENGE_WORD, _BTN_MIN_CONF)
+        return self._find_exact(items, _CHALLENGE_WORD,
+                                _CHALLENGE_MIN_CONF)
+
+    def _has_weak_challenge(self, items: List[Tuple]) -> bool:
+        '''候选中是否有**低置信度**「挑战」痕迹（按钮闪烁 / OCR 抖动）。
+
+        v2.4.6：找不到按钮时若画面仍留有「挑战」字样，就继续等下一帧，
+        不把识别抖动当成「本塔打完」。全等归一 → 不误伤「挑战奖励」
+        「继续挑战 / 再次挑战」。
+        '''
+        return any(
+            len(it) >= 4 and isinstance(it[2], str)
+            and isinstance(it[3], (int, float))
+            and _CHALLENGE_WEAK_CONF <= it[3] < _CHALLENGE_MIN_CONF
+            and _norm(it[2]) == _CHALLENGE_WORD
+            for it in items
+        )
 
     def _cands(self, items: List[Tuple]) -> str:
         """诊断：找不到按钮时打印候选（便于真机按日志微调）。"""
@@ -801,12 +832,21 @@ class TianqiongTrialTask(BaseTask):
                 # 会遮住按钮，单帧读不到就返回会**误判「本塔已打完」**
                 # （真机 19:35：进塔 4 秒即返回，实际有可挑战层）。
                 no_challenge += 1
-                if no_challenge < _NO_CHALLENGE_CONFIRM:
+                # v2.4.6：画面里还有「挑战」痕迹（哪怕低分）→ 只是按钮
+                # 闪烁 / OCR 抖动，绝不当成「本塔已打完」。给更长的有界
+                # 等待（8 轮 × 2s），真打完时不会卡死。
+                weak = self._has_weak_challenge(items)
+                limit = (_NO_CHALLENGE_HARD_MAX if weak
+                         else _NO_CHALLENGE_CONFIRM)
+                if no_challenge < limit:
+                    why = ('候选仍有低分「挑战！」，判为识别抖动' if weak
+                           else '等待转场结束')
                     self.log(f"[信息] 塔内暂未读到「挑战！」"
-                             f"（{no_challenge}/{_NO_CHALLENGE_CONFIRM}）"
-                             f"，等待转场结束｜候选={self._cands(items)}")
+                             f"（{no_challenge}/{limit}），{why}"
+                             f"｜候选={self._cands(items)}")
                     self._sleep(2.0)
                     continue
+                confirmed = no_challenge
                 no_challenge = 0
                 # 多次确认仍无「挑战」→ 本塔已打完；用 stall 防「返回无效」死循环
                 stall += 1
@@ -816,7 +856,7 @@ class TianqiongTrialTask(BaseTask):
                     return 'failed'
                 _tname = (self._cur_tower or {}).get('name') or '本塔'
                 self.log(f"[信息] 「{_tname}」今日已无可挑战层"
-                         f"（已连续 {_NO_CHALLENGE_CONFIRM} 次确认）"
+                         f"（已连续 {confirmed} 次确认）"
                          "→ 标记为已通关，本次运行不再进入")
                 # v2.3.26：记入今日塔快照，返回塔列表后自动跳过
                 if self._cur_tower is not None:
