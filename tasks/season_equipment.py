@@ -60,8 +60,13 @@
 
 【护栏】
   · check_stop 每轮即时响应
-  · 连续未知帧上限 / 单职业点击无进展上限 / 全局点击硬上限
-  · 资源不足、动画卡住、按钮点了没反应 → failed（不无限重试）
+  · 一律按「连续未推进 / 连续无进展」判定，**不按累计点击数**判卡住
+  · v2.4.8 取消「全局点击硬上限 90 次」：每件装备成功锻造实际要
+    「卡片锻造 + 弹窗锻造 + 穿戴新装备」3 次点击，6 职业 × 6 件理论
+    108+ 次；旧常量按 2 次估算（90 次）→ 真机 2026-11-15 17:43 连续
+    成功穿戴至 28 件时被强行判失败。
+  · 护栏：连续未推进帧（含成功页常驻）/ 单职业点击无进展 / 资源不足
+    / 动画卡住 / 按钮点了没反应 → failed（不无限重试）
   · 自然完成返回 'done'（不中断队列），手动停止返回 'stopped'
 """
 
@@ -134,9 +139,11 @@ _DIALOG_FORGE_RY_MAX: float = 0.72
 _IMG_W, _IMG_H = 1280.0, 1024.0
 
 # 护栏
-_STALL_MAX: int = 20          # 连续未知帧（动画/过渡）
+_STALL_MAX: int = 20          # 连续未推进帧（未知界面 / 成功页常驻）
 _NO_PROGRESS_MAX: int = 8     # 同一职业连续点击但无成功页
-_CLICK_HARD_MAX: int = 90     # 全局点击硬上限（6 职业 × 6 件 × 2 次 + 余量）
+# v2.4.8 删除原「全局累计点击硬上限 90」常量：
+#   「累计点击多」不等于「卡住」，见文件头【护栏】。累计点击数 clicks
+#   仅作日志诊断，不参与任何失败判定。
 _LOOP_SLEEP: float = 1.2
 
 
@@ -247,7 +254,7 @@ class SeasonEquipmentTask(BaseTask):
 
     def _forge_loop(self) -> str:
         stall = 0
-        clicks = 0
+        clicks = 0          # 仅诊断：累计点击次数，不参与任何失败判定
         forged = 0
         done_classes: set = set()
         cur_class: Optional[str] = None
@@ -260,9 +267,12 @@ class SeasonEquipmentTask(BaseTask):
         while True:
             if self.check_stop():
                 return self._stop_result()
-            if clicks >= _CLICK_HARD_MAX:
-                self.log(f"[错误] 点击硬上限 {_CLICK_HARD_MAX} 次，"
-                         "判卡住（可能资源不足或动画异常）"
+            # v2.4.8：删除「累计点击 ≥90 判卡住」（误杀正常推进）。
+            # 改为循环顶部统一检查连续未推进帧，覆盖原先被各分支 continue
+            # 绕过的成功页/弹窗/一键装备路径（按钮找不到或点击无效不死循环）。
+            if stall >= _STALL_MAX:
+                self.log(f"[错误] 连续 {_STALL_MAX} 帧未识别到可操作界面"
+                         "（未知帧或成功页常驻）"
                          f" | 末次锻造点击={last_forge_pos}")
                 return 'failed'
 
@@ -279,7 +289,9 @@ class SeasonEquipmentTask(BaseTask):
                     self.bot.click_at(pos[0], pos[1], '穿戴新装备')
                     forged += 1
                     clicks += 1
-                    stall = 0
+                    # v2.4.8：穿戴后须由下一帧确认画面已离开成功页。
+                    # 点击无效导致成功页常驻时 stall 连续累加触发护栏。
+                    stall += 1
                     no_progress = 0
                     self.log(f"[成功] 穿戴新装备（累计 {forged} 件）")
                     self._sleep(_LOOP_SLEEP)
@@ -336,7 +348,8 @@ class SeasonEquipmentTask(BaseTask):
                                            if c not in done_classes), None)
                             if nxt_ok is None:
                                 self.log("[成功] 六职业全部完成，"
-                                         f"累计 {forged} 件")
+                                         f"累计 {forged} 件"
+                                         f" | 累计点击 {clicks} 次")
                                 return 'done'
                             if not self._switch_class(nxt_ok):
                                 self.log(f"[错误] 切换职业「{nxt_ok}」失败"
@@ -396,7 +409,8 @@ class SeasonEquipmentTask(BaseTask):
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
                 if nxt is None:
-                    self.log(f"[成功] 六职业全部锻造完成，累计 {forged} 件")
+                    self.log(f"[成功] 六职业全部锻造完成，累计 {forged} 件"
+                             f" | 累计点击 {clicks} 次")
                     return 'done'
                 if self._switch_class(nxt):
                     cur_class = nxt
@@ -413,7 +427,8 @@ class SeasonEquipmentTask(BaseTask):
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
                 if nxt is None:
-                    self.log("[成功] 六职业全部完成")
+                    self.log("[成功] 六职业全部完成"
+                             f" | 累计点击 {clicks} 次")
                     return 'done'
                 if self._enter_class_from_main(nxt):
                     cur_class = nxt
@@ -449,7 +464,8 @@ class SeasonEquipmentTask(BaseTask):
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
                 if nxt is None:
-                    self.log(f"[成功] 六职业全部锻造完成，累计 {forged} 件")
+                    self.log(f"[成功] 六职业全部锻造完成，累计 {forged} 件"
+                             f" | 累计点击 {clicks} 次")
                     return 'done'
                 if self._switch_class(nxt):
                     cur_class = nxt
@@ -467,9 +483,7 @@ class SeasonEquipmentTask(BaseTask):
 
             if stall == 1 or stall % 5 == 0:
                 self.log(f"[信息] 等待画面就绪…（{stall}/{_STALL_MAX}）")
-            if stall >= _STALL_MAX:
-                self.log(f"[错误] 连续 {_STALL_MAX} 帧未识别到可操作界面")
-                return 'failed'
+            # 失败判定统一在循环顶部，此处只做进度日志与等待
             self._sleep(_LOOP_SLEEP)
 
     # ── 定位辅助 ────────────────────────────────────────────

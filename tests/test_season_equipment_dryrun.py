@@ -6,7 +6,7 @@
   2. **弹窗态不得误点背景 ry≈0.87 的 6 个「锻造」**（真机截图陷阱）
   3. 「无锻造按钮」→ 切下一职业；6 职业全完成 → done（自然完成不中止队列）
   4. 已达 700 级装备无按钮（法师/战士/坦克页按钮数不足 6）不被强点
-  5. 无进展护栏 / 全局点击硬上限 / 模板未命中判失败 / 即时停止
+  5. 连续未推进护栏 / 无进展护栏 / 模板未命中判失败 / 即时停止
   6. 6 个 RGBA 模板存在、圆外透明、颜色一致、生产同款 maskedNCC 命中
 
 运行： D:/anaconda3/envs/afk_gpu/python.exe tests/test_season_equipment_dryrun.py
@@ -409,15 +409,15 @@ check('6i 修复后累计穿戴 2 件（两件各一次，不重复）',
       f'{sum(1 for c in bot_new.clicks if c[0]=="穿戴新装备")} 件')
 
 
-# ══ 7. 护栏补强：弹窗不关闭（资源不足）不得空转至硬上限 ══════
+# ══ 7. 护栏补强：弹窗不关闭（资源不足）不得空转 ══════
 print('\n── 7. 弹窗路径护栏 ──')
 # 场景：点卡片 → 弹窗出现 → 点弹窗锻造但资源不足、弹窗不关闭；
-# 修复前 no_progress 只统计卡片点击，会一直点到 90 次硬上限。
+# 修复前 no_progress 只统计卡片点击，会空转到旧「90 次硬上限」（v2.4.8 已取消该上限）。
 bot_res = _SeqBot([_class_frame((X_STALE,))] + [_dialog_frame()] * 40)
 res_res, logs_res, bot_res = run_case(bot_res)
 dlg_clicks = sum(1 for c in bot_res.clicks if c[0] == '弹窗_锻造')
 check('7a 资源不足/弹窗不关闭 → failed', res_res == 'failed', res_res)
-check('7b 弹窗点击计入无进展（≤8 次即止损，不空转 90 次）',
+check('7b 弹窗点击计入无进展（≤8 次即止损，不空转）',
       0 < dlg_clicks <= 8, f'弹窗点击 {dlg_clicks} 次')
 check('7c 失败日志带末次坐标（便于真机定位）',
       any('末次坐标=' in l for l in logs_res),
