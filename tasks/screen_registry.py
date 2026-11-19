@@ -122,7 +122,7 @@ class ScreenRegistry:
     def __init__(self) -> None:
         self._rules: List[Tuple[int, int, str, Callable, str]] = []
         self._seq: int = 0
-        # v2.5.0：动态词登记——严格模式下这些词从 OCR 帧剔除后再评估，
+        # v2.4.10：动态词登记——严格模式下这些词从 OCR 帧剔除后再评估，
         # 保证任何判据都不会靠"时有时无"的元素识别常驻界面
         self._volatile: Dict[str, Tuple[str, ...]] = {}
 
@@ -152,7 +152,7 @@ class ScreenRegistry:
         """识别画面：返回首个命中的 screen_id；全不命中 → 'unknown'。
 
         strict_stable=True：先剔除本画面的动态词再评估，用于验证判据
-        不依赖时有时无的元素（v2.5.0）。
+        不依赖时有时无的元素（v2.4.10）。
         """
         for _, _, screen_id, matcher, _ in sorted(
             self._rules, key=lambda r: (r[0], r[1])
@@ -168,7 +168,7 @@ class ScreenRegistry:
 
     def matches(self, screen_id: str, items: List[Tuple],
                 strict_stable: bool = False) -> bool:
-        """只评估指定 screen_id 的判据（任务内单点判定，v2.5.0）。"""
+        """只评估指定 screen_id 的判据（任务内单点判定，v2.4.10）。"""
         for _, _, sid, matcher, _ in self._rules:
             if sid != screen_id:
                 continue

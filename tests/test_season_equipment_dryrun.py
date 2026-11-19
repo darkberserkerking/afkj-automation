@@ -217,7 +217,7 @@ f_main_no_chest = [it(58, 292, '季职业装备'), it(983, 859, '当前赛季'),
 check('2g-2 无宝箱行时主界面仍识别（2026-11-20 现场）',
       GLOBAL_SCREEN_REGISTRY.matches(
           'season.equip_main', f_main_no_chest, strict_stable=True))
-# v2.5.0：严格模式剔除动态词 → 只有动态词+当前赛季的帧不能被认成主界面
+# v2.4.10：严格模式剔除动态词 → 只有动态词+当前赛季的帧不能被认成主界面
 f_legacy_only = [it(900, 641, '待领宝箱列表'), it(983, 859, '当前赛季')]
 check('2g-3 严格模式不认纯动态词帧（防判据回流）',
       not GLOBAL_SCREEN_REGISTRY.matches(
@@ -313,7 +313,7 @@ print('\n── 6. OCR 缓存行为分叉（真机 16:59 回归）──')
 
 TASK_SRC = os.path.join(ROOT, 'tasks', 'season_equipment.py')
 _src = open(TASK_SRC, encoding='utf-8').read()
-# v2.5.0 静态门禁：常驻判据不得依赖动态词，且任务内不得自建主界面判据
+# v2.4.10 静态门禁：常驻判据不得依赖动态词，且任务内不得自建主界面判据
 _VOLATILE = ('待领宝箱列表', '一键装备',
              '当前无可替换装备', '当前暂无可锻造的装备')
 check('6a-0 任务源码无本地 _W_MAIN（单一真相源=screen_registry）',

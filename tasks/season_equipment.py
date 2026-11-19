@@ -16,7 +16,7 @@
   8. 六个职业全部无可锻造 → done
 
 【关键判据（全部来自真机 OCR，不是目测）】
-  · 主界面：走 GLOBAL_SCREEN_REGISTRY['season.equip_main']（v2.5.0
+  · 主界面：走 GLOBAL_SCREEN_REGISTRY['season.equip_main']（v2.4.10
     单一真相源；'职业装备' + '当前赛季'，严格模式剔除动态词）
   · 职业页：'锻造等级上限' + '当前无可替换装备'
   · 锻造弹窗：'当前装备' + '可锻造装备'（**优先级必须高于职业页**，
@@ -113,10 +113,10 @@ _MAIN_ICON_REGION_RATIO = (0.24, 0.42, 0.52, 0.42)
 _MAIN_ICON_THRESHOLD: float = 0.70
 _MAIN_ICON_SCALE_RANGE: Tuple[float, float, float] = (1.3, 1.9, 0.1)
 
-# v2.5.0：主界面判据不再在任务内定义——统一走 GLOBAL_SCREEN_REGISTRY
+# v2.4.10：主界面判据不再在任务内定义——统一走 GLOBAL_SCREEN_REGISTRY
 # 的 'season.equip_main'（单一真相源，严格模式剔除动态词）。
 # 历史：v2.4.9 曾把旧「待领宝箱列表 + 当前赛季」改为「职业装备 + 当前赛季」，
-# 原因是宝箱领完后该行消失；v2.5.0 把这份判据并回注册表。
+# 原因是宝箱领完后该行消失；v2.4.10 把这份判据并回注册表。
 # v2.3.39 真机：横幅文案随进度变化，不可写进 AND 判据——
 #   还有可锻造 → 「当前无可替换装备」
 #   六件全 700 → 「当前暂无可锻造的装备」
@@ -254,7 +254,7 @@ class SeasonEquipmentTask(BaseTask):
 
         attempts = 0
         popups = 0
-        last_texts: List[str] = []   # v2.5.0：失败日志带当帧 OCR 词
+        last_texts: List[str] = []   # v2.4.10：失败日志带当帧 OCR 词
         while attempts < 4 and popups < 3:
             if self.check_stop():
                 return False
