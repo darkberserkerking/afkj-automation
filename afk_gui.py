@@ -7,13 +7,13 @@ import traceback
 import datetime
 import collections
 
-# 1. 确定项目根目录（打包 exe = exe 所在目录，配置随 exe 持久化；源码运行 = 项目路径）
+# 1. 确定项目根目录（打包 exe = exe 所在目录，配置随 exe 持久化；源码运行 = 本文件所在目录）
+#    v2.4.9：去掉写死的本机绝对路径——源码运行时一律以 afk_gui.py 所在目录为根，
+#    否则换一份 checkout 后配置/日志仍落回旧项目目录（实测：新克隆读不到自己的 gui_config.json）。
 if getattr(sys, 'frozen', False):
     PROJECT_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
-    PROJECT_DIR = r"C:\Users\x9502\WorkBuddy\20260320211537"
-    if not os.path.exists(PROJECT_DIR):
-        PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 1b. GUI 自身设置持久化文件（v1.8.16）
 GUI_CONFIG = os.path.join(PROJECT_DIR, 'gui_config.json')

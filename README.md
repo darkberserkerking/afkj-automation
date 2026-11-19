@@ -60,11 +60,22 @@ _✨ 剑与远征：启程 的 Windows 桌面前台自动化助手 ✨_
 ```bash
 git clone https://github.com/darkberserkerking/afkj-automation.git
 cd afkj-automation
-pip install customtkinter opencv-python onnxruntime Pillow pywin32 keyboard
+
+# 建议用独立环境（Python 3.11+，实测 3.12.13）
+conda create -n afk python=3.12 -y
+conda activate afk
+pip install customtkinter opencv-python onnxruntime Pillow pywin32 keyboard pyautogui pyclipper shapely numpy
+
 python afk_gui.py
 ```
 
-或者直接双击 **`tools/launch_source.bat`**（用 `pythonw` 免控制台启动）
+也可以直接双击 **`tools/launch_source.bat`**：它按 `AFKJ_PYTHON` → `PATH` → conda 各环境的顺序，自动挑一个**能 import 全部依赖**的解释器，脚本里不含任何写死路径。
+
+- 只找到没装依赖的 Python（比如系统自带的）时，脚本会打印安装命令并停下，不会带着缺包硬启动
+- 想指定环境：`set AFKJ_PYTHON=C:\path\to\env\pythonw.exe`
+- 需要管理员权限时（按键要送进游戏窗口）：右键 bat → **以管理员身份运行**，或打包 `tools/launch_source_admin.py`（自带 `--uac-admin` 清单）后双击
+
+> ⚠️ 用 `python` 而不是 `pythonw` 启动能看到完整 traceback；报 `ModuleNotFoundError` 基本都是用错了环境（系统 Python 缺包，而项目环境是装好的）。
 
 ### 环境要求
 
@@ -72,8 +83,8 @@ python afk_gui.py
 |---|---|
 | 系统 | Windows 10 / 11（需管理员权限） |
 | 游戏 | 窗口化 **1280×1024**，不要最小化，保持前台 |
-| Python | 3.11+（开发环境：conda `afk_gpu`） |
-| 依赖 | `customtkinter` `opencv-python` `onnxruntime` `Pillow` `pywin32` `keyboard` |
+| Python | 3.11+（实测 3.12.13；conda 或 venv 均可） |
+| 依赖 | `customtkinter` `opencv-python` `onnxruntime` `Pillow` `pywin32` `keyboard` `pyautogui` `pyclipper` `shapely` `numpy` |
 
 ## 🔄 自动更新
 
