@@ -16,7 +16,8 @@
   8. 六个职业全部无可锻造 → done
 
 【关键判据（全部来自真机 OCR，不是目测）】
-  · 主界面：'待领宝箱列表' + '当前赛季'（双词 AND，避开英雄厅堂底栏）
+  · 主界面：'职业装备' + '当前赛季'（双词 AND；v2.4.9 起不再依赖
+    '待领宝箱列表'——宝箱领完后该行消失，旧判据会误判未识别）
   · 职业页：'锻造等级上限' + '当前无可替换装备'
   · 锻造弹窗：'当前装备' + '可锻造装备'（**优先级必须高于职业页**，
     否则弹窗里同时读到背景 ry≈0.867 的 6 个「锻造」会误点背景）
@@ -112,7 +113,11 @@ _MAIN_ICON_THRESHOLD: float = 0.70
 _MAIN_ICON_SCALE_RANGE: Tuple[float, float, float] = (1.3, 1.9, 0.1)
 
 # 判据词（子串，来自真机 OCR）
-_W_MAIN = ('待领宝箱列表', '当前赛季')
+# v2.4.9：旧判据「待领宝箱列表 + 当前赛季」只在有宝箱可领时成立——
+# 2026-11-20 真机 01:54 截图已进主界面但无宝箱行，双词 AND 失效导致
+# 点完「赛季装备」后连查 4 帧都判未识别、任务中止。改用界面常驻的
+# 标题「职业装备」（覆盖 OCR 读成「季职业装备」的情况）+「当前赛季」。
+_W_MAIN = ('职业装备', '当前赛季')
 # v2.3.39 真机：横幅文案随进度变化，不可写进 AND 判据——
 #   还有可锻造 → 「当前无可替换装备」
 #   六件全 700 → 「当前暂无可锻造的装备」
@@ -181,8 +186,14 @@ class SeasonEquipmentTask(BaseTask):
         return "锻造并穿戴六职业赛季装备"
 
     def startup_probe(self) -> str:
-        """三态契约：已在装备链路 → ready；其余 clear（交给 _goto_entry）。"""
+        """三态契约：已在装备链路 → ready；其余 clear（交给 _goto_entry）。
+
+        v2.4.10：先清「点击空白处关闭」类弹窗。命中后不沿用旧帧判定
+        （旧帧只有弹窗文字），返回 clear 交给 _goto_entry 重新识别。
+        """
         items = self.bot._ocr_screen(no_cache=True)
+        if self.dismiss_blink_popup(items):
+            return 'clear'
         texts = self._texts(items, 0.6)
         if self._is_in_equip_flow(texts):
             self.log("[信息] 启动即在赛季装备链路，就地续跑")
@@ -212,10 +223,21 @@ class SeasonEquipmentTask(BaseTask):
         return self._forge_loop()
 
     def _goto_entry(self) -> bool:
-        """自动导航：已在英雄厅堂则直达；否则回 1 层 → 英雄厅堂 → 赛季装备。"""
+        """自动导航：已在英雄厅堂则直达；否则回 1 层 → 英雄厅堂 → 赛季装备。
+
+        v2.4.10：弹窗优先。真机「新赛季养成开启」弹窗（底部「点击空白处
+        关闭」）在点底栏英雄厅堂后遮住入口，旧实现连查 4 帧都读不到
+        「赛季装备」，直接判导航失败并中止整个调度。现在每帧先调
+        BaseTask.dismiss_blink_popup 关弹窗（全屏搜索、不限位置），命中后
+        重新取帧，不消耗入口查找次数。
+        """
         first = self.bot._ocr_screen(no_cache=True)
-        first_blob = ' '.join(self._texts(first, 0.6))
-        need_nav = not (_W_HERO_HALL in first_blob and _W_ENTRY in first_blob)
+        # 导航前先清弹窗；命中后不沿用被遮挡的旧帧，强制走导航，
+        # 由下面循环重新 OCR 识别真实界面（不新增取帧，守住 no_cache 铁律）
+        popup_at_start = self.dismiss_blink_popup(first)
+        first_blob = '' if popup_at_start else ' '.join(self._texts(first, 0.6))
+        need_nav = popup_at_start or not (
+            _W_HERO_HALL in first_blob and _W_ENTRY in first_blob)
         if need_nav:
             from tasks.global_nav import GlobalNavigator
             nav = GlobalNavigator(
@@ -223,10 +245,19 @@ class SeasonEquipmentTask(BaseTask):
             if not nav.navigate_to('playbook'):
                 self._nav_last_screen = getattr(nav, 'last_screen', '')
                 return False
-        for _ in range(4):
+
+        attempts = 0
+        popups = 0
+        while attempts < 4 and popups < 3:
             if self.check_stop():
                 return False
             items = self.bot._ocr_screen(no_cache=True)
+            # 弹窗优先：命中即点掉并重新取帧，不计入「找入口」次数
+            if self.dismiss_blink_popup(items):
+                popups += 1
+                self._sleep(0.8)
+                continue
+            attempts += 1
             texts = self._texts(items, 0.6)
             blob = ' '.join(texts)
             if all(k in blob for k in _W_MAIN):
@@ -247,7 +278,8 @@ class SeasonEquipmentTask(BaseTask):
                     self._sleep(2.0)
                     continue
             self._sleep(1.0)
-        self.log("[错误] 未找到「英雄厅堂 / 赛季装备」入口")
+        self.log("[错误] 未找到「英雄厅堂 / 赛季装备」入口"
+                 f"（本次已清理弹窗 {popups} 次）")
         return False
 
     # ── 状态机主循环 ────────────────────────────────────────
@@ -263,6 +295,7 @@ class SeasonEquipmentTask(BaseTask):
         onekey_streak = 0
         onekey_done: set = set()
         onekey_persistent = False   # 已确认按钮常驻 → 后续职业不再重复等待
+        popup_streak = 0            # v2.4.10：连续弹窗清理次数（有界）
 
         while True:
             if self.check_stop():
@@ -277,6 +310,16 @@ class SeasonEquipmentTask(BaseTask):
                 return 'failed'
 
             items = self.bot._ocr_screen(no_cache=True)
+            # v2.4.10：弹窗优先——任意位置命中「点击空白处关闭」类提示先
+            # 点掉，再重新取帧识别状态；不记为未推进帧，也不 ESC 脱离
+            # 打断当前职业进度。连续 3 次仍命中则交 stall 护栏兜底。
+            if popup_streak < 3 and self.dismiss_blink_popup(items):
+                popup_streak += 1
+                stall = 0
+                self._sleep(_LOOP_SLEEP)
+                continue
+            popup_streak = 0
+
             texts = self._texts(items, 0.6)
             blob = ' '.join(texts)
 

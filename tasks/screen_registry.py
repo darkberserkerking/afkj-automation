@@ -534,10 +534,12 @@ def build_default_registry() -> ScreenRegistry:
     )
     reg.register(
         'season.equip_main',
-        lambda items: (lambda h: h('待领宝箱列表') and h('当前赛季'))(
+        # v2.4.9：宝箱行领完即消失，不能再作为主界面判据；
+        # 标题「职业装备」+ 右下「当前赛季」为常驻双词
+        lambda items: (lambda h: h('职业装备') and h('当前赛季'))(
             _mk_has(items)),
         priority=93,
-        desc='赛季职业装备主界面（六职业圆形图标）',
+        desc='赛季职业装备主界面（六职业圆形图标；不依赖宝箱行）',
     )
     reg.register(
         'nav.hero_hall',

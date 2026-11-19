@@ -3,7 +3,7 @@
 ===/<repository>/===
 .gitattributes[FV6T]: F:声明 Git 检出统一 LF 行尾，保证 AOCI Baseline 字节一致 | R:- | A:- | S:* text=auto eol=lf 覆盖 Windows autocrlf，否则整棵树被 AOCI 判为 stale
 .gitignore[FC6T]: F:排除构建产物、本机配置、凭据与运行日志，避免入库 | R:- | A:- | S:不得忽略 aoci.txt/aoci.meta.txt/aoci.code.txt/AGENTS.md，被忽略的资产会被 scan 静默跳过
-AFKJ自动化工具.spec[OV8S]: F:PyInstaller 单文件打包脚本，产出请求管理员权限的 exe | R:code:afk_gui.py | A:Analysis,EXE | S:Library/bin 的 libssl/libcrypto-3-x64.dll 必须后写覆盖，OpenSSL 与 _ssl 错配会让证书解析 0/81；certifi CA、model/ocr、templates 必须显式打包
+AFKJ自动化工具.spec[OV8S]: F:PyInstaller 单文件打包脚本，产出请求管理员权限的 exe（名称随 config.VERSION 同步，现为 v2.4.9） | R:code:afk_gui.py | A:Analysis,EXE | S:Library/bin 的 libssl/libcrypto-3-x64.dll 必须后写覆盖，OpenSSL 与 _ssl 错配会让证书解析 0/81；certifi CA、model/ocr、templates 必须显式打包
 AGENTS.md[SG6S]: F:面向 Agent 的仓库认知使用说明与最小工具入口 | R:code:aoci.txt,code:aoci.meta.txt | A:- | S:aoci:begin/aoci:end 区块由 aoci init 生成；静态文档不得覆盖 aoci_rules 与 Guide 的机器事实
 LICENSE[SV5L]: F:GNU AGPL-3.0 许可证全文 | R:- | A:- | S:修改后分发（含以网络服务方式提供）必须同样以 AGPL-3.0 开源并保留版权与许可证文本
 README.md[SG7S]: F:项目说明：功能清单、两种启动方式、依赖清单、更新机制与测试入口 | R:code:afk_gui.py | A:- | S:仅适配 1280×1024 窗口化并需管理员权限；依赖清单缺 pyautogui/pyclipper/shapely 会在 import 阶段直接崩，报 ModuleNotFoundError 多半是选错了解释器
@@ -17,7 +17,7 @@ task_registry.py[CD8M]: F:任务元数据与实例注册、排序、启停状态
 ===/<repository>/afk_bot/===
 __init__.py[CG8T]: F:包入口：导出三层子模块并施加全局 pyautogui 设置 | R:code:afk_bot/facade.py,code:task_registry.py | A:__all__,VERSION,default_config | S:必须 import task_registry 与 tasks 触发任务注册副作用，漏掉则任务列表为空；FAILSAFE=False 全局关闭
 bug_report.py[IO7L]: F:Bug 上报：截图+日志+环境先本地落盘，再上传为 GitHub Issue | R:code:afk_bot/updater.py | A:collect,upload,report,retry_pending | S:Unity 窗口 PrintWindow 截图为全黑，必须 ImageGrab 按窗口 rect 裁剪；上传走 Git Data API 而非 git push（git 端点常 502）；无 Token 只落盘返回 None
-config.py[CC8S]: F:全局常量：版本号、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点『点击空白处』等提示文字本身，绝不点一键购买或价格按钮；_BTN_POS 由 afkj_config.json 提供，缺失才回退硬编码
+config.py[CC8S]: F:全局常量：版本号（现 v2.4.9，须与 spec 同步）、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点『点击空白处』等提示文字本身，绝不点一键购买或价格按钮；_BTN_POS 由 afkj_config.json 提供，缺失才回退硬编码
 facade.py[CG8L]: F:跨层门面 AFKBot，委托 AFKBotCore 并保持旧 API 完全兼容 | R:code:afk_bot/auto_farm/loop.py | A:AFKBot.run,run_auto_farm,click_ratio,template_match | S:本层只做委托不得加业务逻辑；GUI 与 tasks 依赖其旧方法签名，改名即破坏兼容
 updater.py[IV8L]: F:自动更新：查 Release、下载 exe、生成 bat 等进程退出后替换并重启 | R:code:afk_bot/config.py,code:afk_gui.py | A:check_latest,download_asset,launch_updater,check_source,git_pull | S:运行中的 exe 无法自我覆盖，必须由 .bat 等 PID 退出后替换；零第三方依赖只用 urllib；SSL 需 Windows 容忍回退与本地代理探测，否则 HTTPS 报 ASN1 NOT_ENOUGH_DATA
 
@@ -56,7 +56,7 @@ v1.8.49_审查报告.md[SG4S]: F:v1.8.49 规范沉淀、审查问题清单与变
 开发指导手册.md[SG9L]: F:新增任务与后续开发的权威手册：架构分层、日志规范与界面规范摘要 | R:code:tasks/base.py,code:docs/界面命名规范.md | A:- | S:界面与动作术语以《界面命名规范》为单一真相源，本手册只做摘要；新增任务必须继承 BaseTask 并注册到 catalog
 战斗轮询时序分析.md[SG4M]: F:战斗内跳过按钮命中率的时序测量与只读分析 | R:code:tasks/labyrinth.py | A:- | S:-
 测试流程优化方案.md[SG6M]: F:测试提速方案与落地记录：把测试态 sleep 加速，全量 L3 由约 25 分钟降至数秒 | R:code:tests/run_tests.py | A:- | S:提速来自测试态 sleep 加速而非删用例，用例数与通过率必须保持不变
-界面判据清单.md[SG7S]: F:全量界面判据清单：三层识别（detector/任务内状态）与置信度门槛 | R:code:afk_bot/services/detector.py | A:- | S:置信度门槛 detector 0.3、任务层 0.5、点击类 0.6；标黄条目属未确认推断，落地前需复查
+界面判据清单.md[SG7S]: F:全量界面判据清单：三层识别（detector/任务内状态）与置信度门槛 | R:code:afk_bot/services/detector.py | A:- | S:置信度门槛 detector 0.3、任务层 0.5、点击类 0.6；标黄条目属未确认推断，落地前需复查；动态元素（如宝箱行）不得写进常驻判据
 界面命名规范.md[SG7S]: F:界面与动作的统一命名规范，术语的单一真相源 | R:code:docs/开发指导手册.md | A:- | S:一律使用游戏内实际名称，禁止自造「主界面/挂机页/主城」等歧义称呼
 目录结构说明.md[SG5S]: F:项目目录结构的整理记录（v2.2.0）与各目录职责 | R:code:afk_bot/__init__.py | A:- | S:-
 规范总览.md[SG7S]: F:规范总览：架构、日志、命名与界面判据的汇聚，每条标注来源 | R:code:docs/开发指导手册.md | A:- | S:每条规范后必须保留来源标注（手册/记忆/代码事实/截图），无来源的判断不得升为规范
@@ -114,8 +114,8 @@ labyrinth.py[DB9L]: F:异界迷宫：逐层选门、战斗、领奖励，支持�
 menu_nav.py[CW6S]: F:主菜单入口导航公共模块：按当前层选菜单按钮、点菜单项、判目标页 | R:code:tasks/daily_quest.py,code:tasks/friend_gift.py,code:tasks/global_nav.py | A:open_from_main_menu | S:GlobalNavigator 必须在函数体内延迟 import，顶层导入会让 dryrun 测试的 monkeypatch 失效而真走全局导航
 nav_planner.py[KW7M]: F:最短路径规划：在画面节点图上 BFS 比较候选路线并输出最少步数 | R:code:tasks/screen_registry.py | A:plan_path,describe_plan | S:同层等价路径优先级为底部直达、ESC 退回、卡片滚动查找；规划结果必须写日志，便于人工复核路线
 scheduler.py[AW8M]: F:任务调度器：按实例顺序执行、注入上下文、传递启停并汇总结果 | R:code:task_registry.py,code:tasks/base.py | A:TaskScheduler.run_all,add,_enforce_boundary_order | S:停止信号必须桥接到 bot 的 _stop_event 与 _pause，否则会出现点了停止任务仍在跑；planned 任务在 preflight 阶段被跳过
-screen_registry.py[CD8L]: F:全局界面注册表：用多词组合判据识别当前画面，界面识别的单一真相源 | R:code:tasks/global_nav.py,code:tasks/text_conf.py | A:ScreenRegistry.register,detect,domain,zh_screen | S:界面识别必须走本注册表，各任务不得自建一份；新增界面要同时登记判据与优先级，否则会把其他域的界面误判成本域
-season_equipment.py[DB7L]: F:更新装备：六职业逐个锻造并穿戴可升级的赛季装备 | R:code:tasks/base.py,code:afk_bot/infra/input.py | A:run,_forge_loop,_detect_class | S:只有下方带「锻造」按钮的装备可锻造（按钮 rx 约 0.338 到 0.667、ry 约 0.776）；职业大圆标 rx 约 0.39 与 0.61，圆心分三行
+screen_registry.py[CD8L]: F:全局界面注册表：用多词组合判据识别当前画面，界面识别的单一真相源 | R:code:tasks/global_nav.py,code:tasks/text_conf.py | A:ScreenRegistry.register,detect,domain,zh_screen | S:界面识别必须走本注册表，各任务不得自建一份；新增界面要同时登记判据与优先级；常驻判据不得依赖动态元素（season.equip_main 不认宝箱行）
+season_equipment.py[DB7L]: F:更新装备：六职业逐个锻造并穿戴可升级的赛季装备 | R:code:tasks/base.py,code:afk_bot/infra/input.py | A:run,_goto_entry,_forge_loop,_detect_class | S:主界面判据为『职业装备+当前赛季』（v2.4.9 去掉宝箱行，领完后会消失）；每帧先清『点击空白处关闭』弹窗再识别，清弹窗不耗入口查找次数也不计 stall
 text_conf.py[FC8T]: F:OCR 置信度阈值的单一真相源（可点目标、画面判据、退出弹窗分层） | R:code:tasks/screen_registry.py,code:tasks/base.py | A:OCR_TARGET_CONF,OCR_SCREEN_CONF,OCR_QUIT_CONF,OCR_HOME_BTN_CONF | S:同一 OCR 目标在判画面与定位按钮处必须共用同一常量；判画面 0.7 而定位 0.85 会让实时帧卡在中间，认得出却点不到
 tianqiong_trial.py[DB8L]: F:天穹试炼：四塔轮换，逐塔逐层挑战至塔内无「挑战」可点 | R:code:tasks/base.py,code:tasks/screen_registry.py | A:run,_is_tower_list,_is_floor_page | S:卡片显示「出发！」才可进，「不在开放时间内」必须跳过；周六周日四塔全开；某塔无挑战即返回塔列表换下一座
 

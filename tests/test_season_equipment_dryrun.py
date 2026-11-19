@@ -137,6 +137,10 @@ class _SeqBot:
     def drag_abs(self, *a, **kw):
         return True
 
+    def find_text(self, items, word, min_conf=0.5):
+        """无弹窗桩：BaseTask.dismiss_blink_popup 会调用本方法。"""
+        return None
+
     def dismiss_blink_popup(self, items=None):
         return False
 
@@ -206,6 +210,13 @@ check('2f 已达 700 级（4 个按钮）不被强点成 6 个',
 blob_main = ' '.join(x[2] for x in f_main())
 blob_cls = ' '.join(x[2] for x in f_class())
 check('2g 主界面双词判据成立', all(k in blob_main for k in _W_MAIN))
+# v2.4.9 真机回归：宝箱行领完后消失，主界面仍必须被识别
+f_main_no_chest = [it(58, 292, '季职业装备'), it(983, 859, '当前赛季'),
+                   it(524, 407, '辅助'), it(634, 419, '法师')]
+blob_no_chest = ' '.join(x[2] for x in f_main_no_chest)
+check('2g-2 无宝箱行时主界面仍识别（2026-11-20 现场）',
+      all(k in blob_no_chest for k in _W_MAIN),
+      blob_no_chest)
 check('2h 职业页双词判据成立', all(k in blob_cls for k in _W_CLASS))
 check('2i 弹窗双词判据成立',
       all(k in ' '.join(x[2] for x in f_dialog()) for k in _W_DIALOG))

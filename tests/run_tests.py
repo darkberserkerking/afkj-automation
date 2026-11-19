@@ -29,7 +29,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PY = r"D:/anaconda3/envs/afk_gpu/python.exe"
+# v2.4.9：改用当前解释器——旧硬编码路径在 Anaconda 迁移后必然失效
+PY = sys.executable
 QUARANTINE = os.path.join(ROOT, 'tests', 'quarantine.txt')
 
 # 脚本 → (层级集合, 是否独占(需串行))

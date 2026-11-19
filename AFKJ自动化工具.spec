@@ -101,7 +101,7 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动化工具v2.4.8',
+    name='AFKJ自动化工具v2.4.9',
     icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,
