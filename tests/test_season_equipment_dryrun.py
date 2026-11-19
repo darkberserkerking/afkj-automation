@@ -29,8 +29,8 @@ from task_registry import TaskRegistry  # noqa: E402
 from tasks.season_equipment import (  # noqa: E402
     CLASS_ORDER, CLASS_TPL, SeasonEquipmentTask,
     _DIALOG_FORGE_RY_MAX, _IMG_H, _W_CLASS, _W_CLASS_DONE, _W_DIALOG,
-    _W_MAIN,
 )
+from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY  # noqa: E402
 
 _PASS, _FAIL = [], []
 
@@ -209,14 +209,19 @@ check('2f 已达 700 级（4 个按钮）不被强点成 6 个',
       t._card_forge_pos(f_class('法师', (0, 1, 3, 5))) == (CARD_X[0], CARD_Y))
 blob_main = ' '.join(x[2] for x in f_main())
 blob_cls = ' '.join(x[2] for x in f_class())
-check('2g 主界面双词判据成立', all(k in blob_main for k in _W_MAIN))
+check('2g 主界面由注册表识别',
+      GLOBAL_SCREEN_REGISTRY.matches('season.equip_main', f_main()))
 # v2.4.9 真机回归：宝箱行领完后消失，主界面仍必须被识别
 f_main_no_chest = [it(58, 292, '季职业装备'), it(983, 859, '当前赛季'),
                    it(524, 407, '辅助'), it(634, 419, '法师')]
-blob_no_chest = ' '.join(x[2] for x in f_main_no_chest)
 check('2g-2 无宝箱行时主界面仍识别（2026-11-20 现场）',
-      all(k in blob_no_chest for k in _W_MAIN),
-      blob_no_chest)
+      GLOBAL_SCREEN_REGISTRY.matches(
+          'season.equip_main', f_main_no_chest, strict_stable=True))
+# v2.5.0：严格模式剔除动态词 → 只有动态词+当前赛季的帧不能被认成主界面
+f_legacy_only = [it(900, 641, '待领宝箱列表'), it(983, 859, '当前赛季')]
+check('2g-3 严格模式不认纯动态词帧（防判据回流）',
+      not GLOBAL_SCREEN_REGISTRY.matches(
+          'season.equip_main', f_legacy_only, strict_stable=True))
 check('2h 职业页双词判据成立', all(k in blob_cls for k in _W_CLASS))
 check('2i 弹窗双词判据成立',
       all(k in ' '.join(x[2] for x in f_dialog()) for k in _W_DIALOG))
@@ -308,6 +313,20 @@ print('\n── 6. OCR 缓存行为分叉（真机 16:59 回归）──')
 
 TASK_SRC = os.path.join(ROOT, 'tasks', 'season_equipment.py')
 _src = open(TASK_SRC, encoding='utf-8').read()
+# v2.5.0 静态门禁：常驻判据不得依赖动态词，且任务内不得自建主界面判据
+_VOLATILE = ('待领宝箱列表', '一键装备',
+             '当前无可替换装备', '当前暂无可锻造的装备')
+check('6a-0 任务源码无本地 _W_MAIN（单一真相源=screen_registry）',
+      '_W_MAIN' not in _src)
+_reg_src = open(os.path.join(ROOT, 'tasks', 'screen_registry.py'),
+                encoding='utf-8').read()
+_main_rule = _reg_src.split("'season.equip_main'", 1)[-1].split(
+    'priority=93', 1)[0]
+check('6a-1 注册表主界面判据不含动态词',
+      not any(w in _main_rule for w in _VOLATILE))
+check('6a-2 动态词已在注册表登记',
+      all(w in _reg_src for w in _VOLATILE))
+
 check('6a 源码全部 _ocr_screen 调用都带 no_cache=True（防新增调用漏改）',
       _src.count('self.bot._ocr_screen(no_cache=True)') == 4
       and 'self.bot._ocr_screen()' not in _src,

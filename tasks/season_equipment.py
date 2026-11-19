@@ -16,8 +16,8 @@
   8. 六个职业全部无可锻造 → done
 
 【关键判据（全部来自真机 OCR，不是目测）】
-  · 主界面：'职业装备' + '当前赛季'（双词 AND；v2.4.9 起不再依赖
-    '待领宝箱列表'——宝箱领完后该行消失，旧判据会误判未识别）
+  · 主界面：走 GLOBAL_SCREEN_REGISTRY['season.equip_main']（v2.5.0
+    单一真相源；'职业装备' + '当前赛季'，严格模式剔除动态词）
   · 职业页：'锻造等级上限' + '当前无可替换装备'
   · 锻造弹窗：'当前装备' + '可锻造装备'（**优先级必须高于职业页**，
     否则弹窗里同时读到背景 ry≈0.867 的 6 个「锻造」会误点背景）
@@ -76,6 +76,7 @@ from typing import List, Optional, Tuple
 
 from task_registry import TaskRegistry, TaskMeta
 from tasks.base import BaseTask
+from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY
 
 task_id = "season_equipment"
 label = "更新装备"
@@ -112,12 +113,10 @@ _MAIN_ICON_REGION_RATIO = (0.24, 0.42, 0.52, 0.42)
 _MAIN_ICON_THRESHOLD: float = 0.70
 _MAIN_ICON_SCALE_RANGE: Tuple[float, float, float] = (1.3, 1.9, 0.1)
 
-# 判据词（子串，来自真机 OCR）
-# v2.4.9：旧判据「待领宝箱列表 + 当前赛季」只在有宝箱可领时成立——
-# 2026-11-20 真机 01:54 截图已进主界面但无宝箱行，双词 AND 失效导致
-# 点完「赛季装备」后连查 4 帧都判未识别、任务中止。改用界面常驻的
-# 标题「职业装备」（覆盖 OCR 读成「季职业装备」的情况）+「当前赛季」。
-_W_MAIN = ('职业装备', '当前赛季')
+# v2.5.0：主界面判据不再在任务内定义——统一走 GLOBAL_SCREEN_REGISTRY
+# 的 'season.equip_main'（单一真相源，严格模式剔除动态词）。
+# 历史：v2.4.9 曾把旧「待领宝箱列表 + 当前赛季」改为「职业装备 + 当前赛季」，
+# 原因是宝箱领完后该行消失；v2.5.0 把这份判据并回注册表。
 # v2.3.39 真机：横幅文案随进度变化，不可写进 AND 判据——
 #   还有可锻造 → 「当前无可替换装备」
 #   六件全 700 → 「当前暂无可锻造的装备」
@@ -195,15 +194,22 @@ class SeasonEquipmentTask(BaseTask):
         if self.dismiss_blink_popup(items):
             return 'clear'
         texts = self._texts(items, 0.6)
-        if self._is_in_equip_flow(texts):
+        if self._is_in_equip_flow(items):
             self.log("[信息] 启动即在赛季装备链路，就地续跑")
             return 'ready'
         return 'clear'
 
     @staticmethod
-    def _is_in_equip_flow(texts: List[str]) -> bool:
+    def _is_main_screen(items: List[Tuple]) -> bool:
+        """赛季装备主界面判定：唯一真相源 = 全局注册表（严格模式）。"""
+        return GLOBAL_SCREEN_REGISTRY.matches(
+            'season.equip_main', items, strict_stable=True)
+
+    def _is_in_equip_flow(self, items: List[Tuple]) -> bool:
+        """启动探测：主界面走注册表，其余状态词仍按任务内判据。"""
+        texts = self._texts(items, 0.6)
         blob = ' '.join(texts)
-        return (all(k in blob for k in _W_MAIN)
+        return (self._is_main_screen(items)
                 or all(k in blob for k in _W_CLASS)
                 or _W_ONEKEY in blob
                 or any(k in blob for k in _W_CLASS_DONE)
@@ -248,6 +254,7 @@ class SeasonEquipmentTask(BaseTask):
 
         attempts = 0
         popups = 0
+        last_texts: List[str] = []   # v2.5.0：失败日志带当帧 OCR 词
         while attempts < 4 and popups < 3:
             if self.check_stop():
                 return False
@@ -259,8 +266,9 @@ class SeasonEquipmentTask(BaseTask):
                 continue
             attempts += 1
             texts = self._texts(items, 0.6)
+            last_texts = texts
             blob = ' '.join(texts)
-            if all(k in blob for k in _W_MAIN):
+            if self._is_main_screen(items):
                 self.log("[成功] 已进入赛季职业装备主界面")
                 return True
             pos = self._find_text_exact(items, _W_ENTRY)
@@ -279,7 +287,8 @@ class SeasonEquipmentTask(BaseTask):
                     continue
             self._sleep(1.0)
         self.log("[错误] 未找到「英雄厅堂 / 赛季装备」入口"
-                 f"（本次已清理弹窗 {popups} 次）")
+                 f"（本次已清理弹窗 {popups} 次）"
+                 f" | 末帧 OCR={last_texts[:8]}")
         return False
 
     # ── 状态机主循环 ────────────────────────────────────────
@@ -466,7 +475,7 @@ class SeasonEquipmentTask(BaseTask):
                 return 'failed'
 
             # ④ 赛季职业装备主界面 → 点圆形图标进入第一个待办职业
-            if all(k in blob for k in _W_MAIN):
+            if self._is_main_screen(items):
                 nxt = next((c for c in CLASS_ORDER
                             if c not in done_classes), None)
                 if nxt is None:

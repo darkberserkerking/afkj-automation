@@ -20,7 +20,7 @@
   4. 判据全部来自真机截图 OCR 实测（依据来源见 docs/界面判据清单.md）
 """
 
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Tuple
 from tasks.text_conf import OCR_SCREEN_CONF, OCR_HOME_BTN_CONF
 
 # ── 判据词表（单一真相源；任务模块从这里导入使用）──────────────
@@ -122,24 +122,63 @@ class ScreenRegistry:
     def __init__(self) -> None:
         self._rules: List[Tuple[int, int, str, Callable, str]] = []
         self._seq: int = 0
+        # v2.5.0：动态词登记——严格模式下这些词从 OCR 帧剔除后再评估，
+        # 保证任何判据都不会靠"时有时无"的元素识别常驻界面
+        self._volatile: Dict[str, Tuple[str, ...]] = {}
 
     def register(self, screen_id: str, matcher: Callable[[List[Tuple]], bool],
-                 priority: int = 100, desc: str = '') -> None:
-        """注册一条界面判据（同 priority 按注册先后评估）。"""
+                 priority: int = 100, desc: str = '',
+                 volatile_tokens: Tuple[str, ...] = ()) -> None:
+        """注册一条界面判据（同 priority 按注册先后评估）。
+
+        volatile_tokens: 该画面里"随进度出现/消失"的词（宝箱行、一键装备、
+        完成横幅等）。仅作登记与严格模式剔除，不参与正常 detect。
+        """
         self._seq += 1
         self._rules.append((priority, self._seq, screen_id, matcher, desc))
+        if volatile_tokens:
+            self._volatile[screen_id] = tuple(volatile_tokens)
 
-    def detect(self, items: List[Tuple]) -> str:
-        """识别画面：返回首个命中的 screen_id；全不命中 → 'unknown'。"""
+    @staticmethod
+    def _strip_volatile(items: List[Tuple],
+                        tokens: Tuple[str, ...]) -> List[Tuple]:
+        """剔除文本含动态词的 OCR 条目（只用于严格模式）。"""
+        if not tokens:
+            return items
+        return [it for it in items
+                if len(it) < 3 or not any(t in str(it[2]) for t in tokens)]
+
+    def detect(self, items: List[Tuple], strict_stable: bool = False) -> str:
+        """识别画面：返回首个命中的 screen_id；全不命中 → 'unknown'。
+
+        strict_stable=True：先剔除本画面的动态词再评估，用于验证判据
+        不依赖时有时无的元素（v2.5.0）。
+        """
         for _, _, screen_id, matcher, _ in sorted(
             self._rules, key=lambda r: (r[0], r[1])
         ):
             try:
-                if matcher(items):
+                frame = (self._strip_volatile(items, self._volatile.get(screen_id, ()))
+                         if strict_stable else items)
+                if matcher(frame):
                     return screen_id
             except Exception:   # 单条判据异常不拖垮全局识别
                 continue
         return 'unknown'
+
+    def matches(self, screen_id: str, items: List[Tuple],
+                strict_stable: bool = False) -> bool:
+        """只评估指定 screen_id 的判据（任务内单点判定，v2.5.0）。"""
+        for _, _, sid, matcher, _ in self._rules:
+            if sid != screen_id:
+                continue
+            try:
+                frame = (self._strip_volatile(items, self._volatile.get(sid, ()))
+                         if strict_stable else items)
+                return bool(matcher(frame))
+            except Exception:
+                return False
+        return False
 
     def domain(self, screen_id: str) -> str:
         """screen_id → 域名（'labyrinth'/'goddess'/'unknown'）。"""
@@ -540,6 +579,8 @@ def build_default_registry() -> ScreenRegistry:
             _mk_has(items)),
         priority=93,
         desc='赛季职业装备主界面（六职业圆形图标；不依赖宝箱行）',
+        volatile_tokens=('待领宝箱列表', '一键装备',
+                         '当前无可替换装备', '当前暂无可锻造的装备'),
     )
     reg.register(
         'nav.hero_hall',
