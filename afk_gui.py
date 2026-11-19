@@ -303,6 +303,12 @@ class App(ctk.CTk):
         self._drawers = {}      # inst_id -> 任务行抽屉 frame
         self._add_drawer = None  # 底部「添加任务」抽屉
 
+        # 拖拽状态（v2.4.9：跟手浮动，见 _on_task_drag_press）
+        self._drag_task = None
+        self._drag_placeholder = None
+        self._drag_slot = None
+        self._drag_pending = False
+
         # 检查管理员权限（在_build_ui之前，此时日志系统已初始化）
         if not _check_admin():
             self._append_log('[警告] 未以管理员权限运行，游戏控制可能失效！建议：右键此脚本 → 以管理员身份运行')
@@ -1292,6 +1298,13 @@ class App(ctk.CTk):
         return ' / '.join(parts)
 
     # ── 拖拽排序（实例） ────────────────────────────────────
+    # v2.4.9：跟手浮动。被拖行脱离 pack 流，用 place 跟随指针，行位移严格
+    # 等于指针相对按下点的位移；换位只挪"占位块"，行本身不跳格。
+    # 旧实现在 motion 里拿 y_root 与"上一帧指针"比，越过 26px 才换位并把
+    # 基准重置到当前指针 → 位移被量化成 26px 台阶、余量丢弃（不跟手、跳动），
+    # 且混用屏幕坐标与 pack 流坐标，容器一滚动基准就漂。
+
+    _DRAG_HYSTERESIS: float = 4.0   # 越槽判定的回差（像素），避免两帧来回抖
 
     def _on_task_drag_press(self, event, inst_id):
         # v2.1.0：边界任务（启动/关闭游戏）位置固定，禁止拖动（防御）
@@ -1301,38 +1314,133 @@ class App(ctk.CTk):
             return
         if self._running:
             return
+        row = self._task_rows.get(inst_id)
+        if row is None:
+            return
+        frame = row['frame']
+
+        # 展开中的抽屉会脱离行，重排后视觉错位 → 拖动开始时统一收起
+        if any(d.winfo_manager() == 'pack' for d in self._drawers.values()):
+            self._close_task_drawers()
+
+        # 起始基准：屏幕锚点 + 行在容器内的实测几何。
+        # 之后每一步位移都从这两个量算，不再用"上一帧指针"当基准。
         self._drag_task = inst_id
-        self._drag_last_y = event.y_root
+        self._drag_origin_root = event.y_root
+        self._drag_press_row_root = frame.winfo_rooty()
+        self._drag_container = frame.master
+        self._drag_h = max(1, frame.winfo_height())
+        self._drag_slot = None
         self._drag_pending = False
+        y0 = frame.winfo_y()          # 必须在 pack_forget 之前取
+
+        # 占位块顶住原槽位：列表不塌陷，其余行不整体上移
+        self._drag_placeholder = ctk.CTkFrame(
+            self._drag_container, fg_color='transparent', height=self._drag_h)
+        self._drag_placeholder.pack(fill='x', pady=(0, SPACE_SM), before=frame)
+
+        frame.pack_forget()
+        # 必须走 tk 层的 place_configure：CTk 的 place() 会把 x/y 乘上窗口
+        # 缩放（实测 1.5 倍），而 winfo_* 返回的已是设备像素 → 位移被放大。
+        frame.place_configure(x=0, y=y0, relwidth=1)
+        frame.lift()
         # 拖拽动画①：被拖行呈半透明态（浅灰底 + 文字变淡模拟）
         self._set_row_drag_style(inst_id, dragging=True)
 
     def _on_task_drag_motion(self, event, inst_id):
         if self._drag_task != inst_id or self._running:
             return
-        dy = event.y_root - self._drag_last_y
-        threshold = 26   # (行高44 + 间距8) / 2
-        moved = False
-        if dy > threshold:
-            moved = TaskRegistry.move_instance(inst_id, 1)
-            self._drag_last_y = event.y_root
-        elif dy < -threshold:
-            moved = TaskRegistry.move_instance(inst_id, -1)
-            self._drag_last_y = event.y_root
-        if moved:
+        if self._drag_placeholder is None:
+            return
+        frame = self._task_rows[inst_id]['frame']
+        dy = event.y_root - self._drag_origin_root          # 指针位移
+        # 屏幕坐标 → 容器坐标。每次都取容器当前的 rooty 换算：
+        # 拖拽中滚轮改变滚动位置时，行仍严格贴住指针（不漂移）
+        y = (self._drag_press_row_root + dy) \
+            - self._drag_container.winfo_rooty()
+        frame.place_configure(y=y)                  # 行位移 == 指针位移
+        if dy:
             self._drag_pending = True
-            # 拖拽动画②：实时换位（只重排 pack 顺序，不销毁组件，
-            # 保持手柄隐式 grab 不中断连续拖动）
-            self._reorder_task_rows_visual()
+        self._update_drag_slot(y + self._drag_h / 2.0)
+
+    def _update_drag_slot(self, center_y: float) -> None:
+        """按被拖行中心落在哪个槽位，移动占位块（被拖行动也不动）。"""
+        order = [i for i in self._ordered_instances()
+                 if i.inst_id != self._drag_task]
+        if not order:
+            return
+        # 边界任务（启动/关闭游戏）位置固定 → 插入点不得越过它们
+        lo = 0
+        while lo < len(order) and self._is_boundary_instance(order[lo]):
+            lo += 1
+        hi = len(order)
+        while hi > lo and self._is_boundary_instance(order[hi - 1]):
+            hi -= 1
+
+        slot = hi
+        for idx, inst in enumerate(order):
+            r = self._task_rows.get(inst.inst_id)
+            if r is None:
+                continue
+            fy = r['frame'].winfo_y()
+            fh = r['frame'].winfo_height()
+            # 回差：越过中线 HYSTERESIS 像素才算换槽，杜绝两帧之间反复
+            if center_y < fy + fh / 2.0 - self._DRAG_HYSTERESIS:
+                slot = idx
+                break
+        slot = max(lo, min(slot, hi))
+
+        if slot == self._drag_slot:
+            return
+        self._drag_slot = slot
+        if slot >= len(order):
+            self._drag_placeholder.pack_configure(
+                after=self._task_rows[order[-1].inst_id]['frame'])
+        else:
+            self._drag_placeholder.pack_configure(
+                before=self._task_rows[order[slot].inst_id]['frame'])
+
+    def _apply_drag_order(self, inst_id: str, slot: int) -> None:
+        """把占位块槽位写回登记顺序。
+
+        只经 move_instance 逐步交换——它内部先 normalize_boundary_order()
+        再逐位交换，并拒绝跨越边界任务，避免显示顺序与登记顺序脱节。
+        """
+        cur = [i.inst_id for i in self._ordered_instances()]
+        if inst_id not in cur:
+            return
+        delta = slot - cur.index(inst_id)
+        step = 1 if delta > 0 else -1
+        for _ in range(abs(delta)):
+            if not TaskRegistry.move_instance(inst_id, step):
+                break
 
     def _on_task_drag_release(self, event):
-        if getattr(self, '_drag_pending', False):
+        inst_id = getattr(self, '_drag_task', None)
+        placeholder = getattr(self, '_drag_placeholder', None)
+        frame = self._task_rows.get(inst_id, {}).get('frame') if inst_id else None
+        moved = bool(getattr(self, '_drag_pending', False))
+        slot = getattr(self, '_drag_slot', None)
+
+        if frame is not None:
+            frame.place_forget()
+        if inst_id and moved and slot is not None:
+            self._apply_drag_order(inst_id, slot)
+        elif frame is not None and placeholder is not None:
+            # 没真拖动：原样放回占位块的位置，不重建、不写盘
+            frame.pack(fill='x', pady=(0, SPACE_SM), before=placeholder)
+        if placeholder is not None:
+            placeholder.destroy()
+        if inst_id:
+            self._set_row_drag_style(inst_id, dragging=False)
+
+        self._drag_task = None
+        self._drag_placeholder = None
+        self._drag_slot = None
+        self._drag_pending = False
+        if moved:
             TaskRegistry.save_config()
             self._render_task_rows()
-            self._drag_pending = False
-        if getattr(self, '_drag_task', None):
-            self._set_row_drag_style(self._drag_task, dragging=False)
-        self._drag_task = None
 
     def _set_row_drag_style(self, inst_id: str, dragging: bool):
         """拖拽半透明态：底色变浅灰、文字变淡；恢复时还原"""
@@ -1349,24 +1457,8 @@ class App(ctk.CTk):
             row['lbl_name'].configure(text_color=TEXT_BRIGHT)
             row['lbl_sum'].configure(text_color=TEXT)
 
-    def _reorder_task_rows_visual(self):
-        """按 registry 顺序重排现有行（不销毁组件，拖拽中实时换位）"""
-        # 记录展开中的抽屉，重排后恢复到各自行的下方
-        open_ids = [iid for iid, d in self._drawers.items()
-                    if d.winfo_manager() == 'pack']
-        for row in self._task_rows.values():
-            row['frame'].pack_forget()
-        for d in self._drawers.values():
-            d.pack_forget()
-        self._lbl_empty_hint.pack_forget()
-        for inst in self._ordered_instances():   # v2.1.0：按渲染顺序（边界固定）
-            frame = self._task_rows[inst.inst_id]['frame']
-            frame.pack(fill='x', pady=(0, SPACE_SM))
-            if inst.inst_id in open_ids:
-                self._drawers[inst.inst_id].pack(
-                    fill='x', pady=(0, SPACE_SM), after=frame)
-        self._lbl_empty_hint.pack(fill='x', pady=SPACE_MD)
-        self._update_empty_hint()
+    # v2.4.9：_reorder_task_rows_visual 已删除——拖拽换位改由占位块完成，
+    # 不再整表重 pack（那会在拖动中让所有行一起位移，产生跳动）。
 
     # ── v2.1.0（用户 20:22）：边界任务在 GUI 内固定位置、不可拖动 ──
     _BOUNDARY_FIRST_CLASS: str = 'start_game'

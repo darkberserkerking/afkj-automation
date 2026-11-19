@@ -6,9 +6,9 @@
 AFKJ自动化工具.spec[OV8S]: F:PyInstaller 单文件打包脚本，产出请求管理员权限的 exe | R:code:afk_gui.py | A:Analysis,EXE | S:Library/bin 的 libssl/libcrypto-3-x64.dll 必须后写覆盖，OpenSSL 与 _ssl 错配会让证书解析 0/81；certifi CA、model/ocr、templates 必须显式打包
 AGENTS.md[SG6S]: F:面向 Agent 的仓库认知使用说明与最小工具入口 | R:code:aoci.txt,code:aoci.meta.txt | A:- | S:aoci:begin/aoci:end 区块由 aoci init 生成；静态文档不得覆盖 aoci_rules 与 Guide 的机器事实
 LICENSE[SV5L]: F:GNU AGPL-3.0 许可证全文 | R:- | A:- | S:修改后分发（含以网络服务方式提供）必须同样以 AGPL-3.0 开源并保留版权与许可证文本
-README.md[SG7S]: F:项目说明：功能清单、两种启动方式、更新机制与测试入口 | R:code:afk_gui.py | A:- | S:仅适配 1280×1024 窗口化并需管理员权限；其它分辨率必须重校准 templates 与坐标
+README.md[SG7S]: F:项目说明：功能清单、两种启动方式、依赖清单、更新机制与测试入口 | R:code:afk_gui.py | A:- | S:仅适配 1280×1024 窗口化并需管理员权限；依赖清单缺 pyautogui/pyclipper/shapely 会在 import 阶段直接崩，报 ModuleNotFoundError 多半是选错了解释器
 _test_asset.txt[TQ2T]: F:测试用资产样例：exe 文件名与 Release 下载链接 | R:- | A:- | S:内容固定为 v2.2.29 样例，不随版本更新，勿当作当前发布版本
-afk_gui.py[EU9L]: F:GUI 与任务调度入口：任务行与抽屉、日志区、启停及启动更新检查 | R:code:afk_bot/facade.py,code:task_registry.py | A:App.__init__,_build_ui,_on_task_status,_schedule_startup_update_check | S:全局崩溃防护必须在文件最顶端；stderr 与崩溃日志拆两个文件，混写会让真崩溃淹没在线程噪声里；源码运行时 PROJECT_DIR 优先本机硬编码路径，不存在才回退脚本目录
+afk_gui.py[EU9L]: F:GUI 与任务调度入口：任务行与抽屉、日志区、启停及启动更新检查 | R:code:afk_bot/facade.py,code:task_registry.py | A:App.__init__,_build_ui,_on_task_drag_motion,_on_task_status | S:崩溃防护必须在文件最顶端，stderr 与崩溃日志拆两个文件；PROJECT_DIR 源码取本文件目录、打包取 exe 目录；拖拽需用 tk 层 place_configure（CTk 的 place() 会将 x/y 乘窗口缩放，位移被放大）
 afkj_config.json[FC7T]: F:运行期配置：卡住判定、战斗阈值与横竖屏按钮比例坐标 | R:code:afk_bot/config.py | A:- | S:结构须与 default_config 对齐；缺 button_positions 节会整体回退硬编码坐标
 maa_ocr.py[KA9L]: F:PP-OCRv5 ONNX 推理引擎：DB 检测、CTC 识别与声明式文字匹配 | R:code:afk_bot/infra/screen.py | A:MaaOCR.recognize,recognize_full,create_ocr | S:只依赖 onnxruntime 与 opencv，禁止引入 paddle；模型必须与 model/ocr/keys.txt 同源配套；ROI 与颜色预过滤可减少九成计算
 overview.md[SG6S]: F:v2.2.6 改动说明：执裁之盾与制裁之盾是两个不同烙印，据此修正三处代码 | R:code:tasks/labyrinth.py | A:- | S:两个词仅差首字，OCR 极易串读，禁止当成同一烙印或良性误读处理
@@ -120,5 +120,5 @@ text_conf.py[FC8T]: F:OCR 置信度阈值的单一真相源（可点目标、画
 tianqiong_trial.py[DB8L]: F:天穹试炼：四塔轮换，逐塔逐层挑战至塔内无「挑战」可点 | R:code:tasks/base.py,code:tasks/screen_registry.py | A:run,_is_tower_list,_is_floor_page | S:卡片显示「出发！」才可进，「不在开放时间内」必须跳过；周六周日四塔全开；某塔无挑战即返回塔列表换下一座
 
 ===/<repository>/tools/===
-launch_source.bat[OV5T]: F:源码模式启动脚本：用 conda 环境的 pythonw 拉起 afk_gui.py | R:code:afk_gui.py | A:- | S:文件必须保持纯 ASCII，非 ASCII 字节会破坏 cmd 解析；本机拒绝 UAC 提权，脚本不得尝试 runas 否则直接中断
-launch_source_admin.py[OV6T]: F:带管理员清单的极简源码启动器：提权后切项目目录并拉起源码版 | R:code:tools/launch_source.bat,code:afk_gui.py | A:main | S:bat 与 pythonw 无应用清单，Windows 不会自动提权且本机 runas 被静默拒绝，故改用 --uac-admin 的小 launcher；启动前必须切到项目目录，否则模板与模型相对路径失效
+launch_source.bat[OV5S]: F:源码模式启动脚本：探测可用解释器后拉起 afk_gui.py，无写死路径 | R:code:afk_gui.py | A:- | S:必须保持纯 ASCII；解释器按 AFKJ_PYTHON、PATH、conda 各环境顺序探测，且必须能 import 全部依赖才采用；不尝试提权（提权用 launch_source_admin）
+launch_source_admin.py[OV6S]: F:带管理员清单的极简源码启动器：提权后定位项目根并拉起源码版 | R:code:tools/launch_source.bat,code:afk_gui.py | A:main,find_pythonw | S:bat 与 pythonw 无应用清单无法自提权，故用 --uac-admin 小 launcher；项目根取本文件上两级，打包后取 AFKJ_SOURCE_DIR 或 exe 目录；解释器探测顺序与 bat 一致
