@@ -102,6 +102,10 @@ class _SeqBot:
         self.clicks.append((label, x, y))
         return True
 
+    def find_text(self, items, kw, min_conf=0.6, exact=False):
+        """v2.4.10：BaseTask.dismiss_blink_popup 会调此方法，桩返回未命中。"""
+        return None
+
     def _click_abs(self, x, y):
         self.clicks.append(('_click_abs', x, y))
         return True
@@ -145,6 +149,8 @@ check('A5 成功页按「未推进」累加 stall（防点击无效死循环）'
 check('A6 所有 _ocr_screen 仍强制 no_cache=True',
       _src.count('self.bot._ocr_screen(no_cache=True)') == 4
       and 'self.bot._ocr_screen()' not in _src)
+check('A7 v2.4.10 主界面判据已并回全局注册表（任务内不再自建 _W_MAIN）',
+      '_W_MAIN =' not in _src and 'GLOBAL_SCREEN_REGISTRY' in _src)
 
 
 # ══ B. 修复前等价旧类：把删除的 90 次硬上限注回去 ══════════
