@@ -217,6 +217,132 @@ check('7d 降级链留痕诊断日志',
       os.path.isfile(_diag_log_7)
       and 'ssl ctx default FAIL' in open(_diag_log_7, encoding='utf-8').read())
 
+# ── 8 系：v2.4.11 失效 Token 的 401/403 匿名 fail-open ──────────
+# 真机 2026-11-20：用户重新 setx 新 PAT 前，旧 token 返回 401，
+# 而 `_default_fetch` 给三通道都带上失效 Bearer → 本可用的匿名
+# 通道也被堵死，报「无法连接 GitHub」误导用户。修复后同一 opener
+# 遇 401/403 立即用无 Authorization 重试；全失败才报「Token 无效」。
+print('\n── ⑧ v2.4.11 Token 401 → 匿名回退 fail-open ──')
+
+
+class _Resp8:
+    """最小响应桩：支持 with 与 read()。"""
+
+    def __init__(self, data):
+        self._data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._data
+
+
+class _AuthFailOpener8:
+    """带 Authorization 的请求抛 401；匿名请求可成功或也失败。"""
+
+    def __init__(self, anon_ok=True, code=401):
+        self.anon_ok = anon_ok
+        self.code = code
+        self.auth_calls = 0
+        self.anon_calls = 0
+
+    def open(self, req, timeout=None):
+        hdrs = getattr(req, 'headers', {}) or {}
+        has_auth = any(str(k).lower() == 'authorization' for k in hdrs)
+        if has_auth:
+            self.auth_calls += 1
+            raise urllib.error.HTTPError(
+                req.full_url, self.code, 'Unauthorized', {}, None)
+        self.anon_calls += 1
+        if self.anon_ok:
+            return _Resp8(GOOD_JSON)
+        raise urllib.error.HTTPError(
+            req.full_url, self.code, 'Unauthorized', {}, None)
+
+
+class _PlainNetFailOpener8:
+    """非 401 的普通网络故障（连接重置），不应触发匿名回退语义。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def open(self, req, timeout=None):
+        self.calls += 1
+        raise ConnectionResetError('connection reset by peer')
+
+
+def _legacy_fetch8(url, token, opener, timeout):
+    """v2.4.10 等价旧逻辑：401 直接抛，无匿名回退（行为分叉对照）。"""
+    req = urllib.request.Request(url, headers=U._headers(token))
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        raise U.UpdateError(f'Token 无效或无仓库读取权限 (HTTP {e.code})')
+
+
+_bo8 = U._build_opener
+_pp8 = U._probe_local_proxies
+_diag8 = os.path.join(
+    os.environ.get('TEMP', os.getcwd()), 'afkj_net_diag_selftest8.log')
+if os.path.isfile(_diag8):
+    os.remove(_diag8)
+os.environ['AFKJ_NET_DIAG_PATH'] = _diag8
+try:
+    # 8-分叉：旧逻辑在同一失效 Token + 匿名可用场景下必然失败
+    _legacy_op = _AuthFailOpener8(anon_ok=True)
+    try:
+        _legacy_fetch8('https://api.github.com/x', 'bad_token', _legacy_op, 1)
+        check('8-分叉 旧逻辑在 401+匿名可用场景失败（证明回归有效）', False)
+    except U.UpdateError:
+        check('8-分叉 旧逻辑在 401+匿名可用场景失败（证明回归有效）', True)
+
+    # 8a：新逻辑命中 401 → 匿名回退成功
+    _op8a = _AuthFailOpener8(anon_ok=True)
+    U._build_opener = lambda _pm: _op8a
+    U._probe_local_proxies = lambda: []
+    _got8a = U._default_fetch(
+        'https://api.github.com/x', 'bad_token', timeout=1)
+    check('8a 401 后匿名回退成功返回数据', _got8a == GOOD_JSON,
+          f'auth={_op8a.auth_calls} anon={_op8a.anon_calls}')
+    check('8b 匿名回退确实发出无 Authorization 请求',
+          _op8a.anon_calls >= 1)
+
+    # 8c：401 + 匿名也失败 → 错误文案明确 Token 无效，不误报网络
+    _op8c = _AuthFailOpener8(anon_ok=False)
+    U._build_opener = lambda _pm: _op8c
+    try:
+        U._default_fetch('https://api.github.com/x', 'bad_token', timeout=1)
+        check('8c 401+匿名失败应抛 UpdateError', False, '未抛异常')
+    except U.UpdateError as _e:
+        _m8 = str(_e)
+        check('8c 401+匿名失败抛 UpdateError', True, _m8[:60])
+        check('8d 文案含「Token 无效或权限不足，匿名回退也失败」',
+              'Token 无效或权限不足，匿名回退也失败' in _m8, _m8[:70])
+        check('8e 文案不含误导性的「无法连接 GitHub」',
+              '无法连接 GitHub' not in _m8, _m8[:70])
+
+    # 8f：普通网络故障（非 401/403）仍报「无法连接 GitHub」
+    _op8f = _PlainNetFailOpener8()
+    U._build_opener = lambda _pm: _op8f
+    try:
+        U._default_fetch('https://api.github.com/x', 'bad_token', timeout=1)
+        check('8f 普通网络失败应抛 UpdateError', False, '未抛异常')
+    except U.UpdateError as _e:
+        _m8f = str(_e)
+        check('8f 普通网络失败抛 UpdateError', True, _m8f[:60])
+        check('8g 普通网络失败仍报「无法连接 GitHub」',
+              '无法连接 GitHub' in _m8f
+              and 'Token 无效或权限不足' not in _m8f, _m8f[:70])
+finally:
+    U._build_opener = _bo8
+    U._probe_local_proxies = _pp8
+    os.environ.pop('AFKJ_NET_DIAG_PATH', None)
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')

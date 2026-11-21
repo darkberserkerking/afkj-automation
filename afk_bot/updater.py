@@ -407,18 +407,24 @@ def _build_opener(proxy_map: Optional[Dict[str, str]]):
     return urllib.request.build_opener(*handlers)
 
 
-def _net_fail_msg(attempts: List[str], ports, last_exc) -> str:
+def _net_fail_msg(attempts: List[str], ports, last_exc,
+                  auth_failed: bool = False) -> str:
     """统一构造带内联诊断的失败消息（v2.3.53 收口，所有出口共用）。
 
     诊断直接内联进错误提示，不依赖日志文件能否写成（v2.3.52 教训：
     日志路径不可写时用户什么都看不到）。
+
+    v2.4.11：auth_failed=True 表示出现过 401/403 且匿名回退也失败，
+    必须报「Token 无效」而不是误导性的「无法连接 GitHub」。
     """
+    head = ('检查更新失败：Token 无效或权限不足，匿名回退也失败'
+            if auth_failed else '检查更新失败：无法连接 GitHub')
     return (
-        '检查更新失败：无法连接 GitHub'
-        f'｜已尝试：{"、".join(attempts) or "无"}'
-        f'｜探测端口：{ports or "无"}'
-        f'｜{_friendly_net_hint(last_exc)}'
-        f'｜诊断日志：{_diag_path()}')
+        head
+        + f'｜已尝试：{"、".join(attempts) or "无"}'
+        + f'｜探测端口：{ports or "无"}'
+        + f'｜{_friendly_net_hint(last_exc)}'
+        + f'｜诊断日志：{_diag_path()}')
 
 
 def _default_fetch(url: str, token: str, timeout: float) -> bytes:
@@ -439,9 +445,10 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
     attempts: List[str] = []
     timing: List[str] = []
     last_exc: Optional[BaseException] = None
+    auth_failed = False        # v2.4.11：401/403（含匿名回退失败）标记
 
     def _try(tag: str, opener) -> Optional[bytes]:
-        nonlocal last_exc
+        nonlocal last_exc, auth_failed
         req = urllib.request.Request(url, headers=_headers(token))
         _t0 = time.time()
         try:
@@ -452,6 +459,26 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
                 return resp.read()
         except Exception as e:                             # noqa: BLE001
             _dt = time.time() - _t0
+            # v2.4.11：失效 Token 的 401/403 不得把本可用的匿名通道一起堵死。
+            # 同一 opener 立即用无 Authorization 的请求重试；匿名成功即返回。
+            if (isinstance(e, urllib.error.HTTPError)
+                    and e.code in (401, 403) and token):
+                auth_failed = True
+                _diag(f'  {tag}: HTTP {e.code}（Token 无效），回退匿名重试')
+                attempts.append(f'{tag}(HTTP{e.code}→匿名)')
+                try:
+                    _anon_req = urllib.request.Request(
+                        url, headers=_headers(''))
+                    with opener.open(_anon_req, timeout=timeout) as resp:
+                        _t1 = time.time() - _t0
+                        timing.append(f'{tag}=匿名OK({_t1:.2f}s)')
+                        _diag(f'  {tag}: 匿名 OK {_t1:.2f}s')
+                        return resp.read()
+                except Exception as e2:                    # noqa: BLE001
+                    _diag(f'  {tag}: 匿名 FAIL {type(e2).__name__} {e2}')
+                    attempts.append(f'{tag}(匿名失败:{type(e2).__name__})')
+                    timing.append(f'{tag}=匿名{type(e2).__name__}')
+                    e = e2
             attempts.append(f'{tag}({type(e).__name__})')
             timing.append(f'{tag}={type(e).__name__}({_dt:.2f}s)')
             _diag(f'  {tag}: FAIL {type(e).__name__} ({_dt:.2f}s) {e}')
@@ -510,7 +537,7 @@ def _default_fetch(url: str, token: str, timeout: float) -> bytes:
     _diag(f'--- ALL FAILED | {timing} ---')
     # 全部失败 → 异常消息**内联全部诊断**（不依赖日志文件能否写成）
     raise UpdateError(
-        _net_fail_msg(attempts, ports, last_exc))
+        _net_fail_msg(attempts, ports, last_exc, auth_failed))
 
 
 # ── v2.3.48：网络瞬断重试与可读提示 ─────────────────────────────
