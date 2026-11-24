@@ -73,6 +73,30 @@ _a = Analysis(
         ] if os.path.isfile(os.path.join(
             os.path.dirname(sys.executable),
             'Library', 'bin', 'tcl86t.dll')) else []),
+
+        # v2.4.19：显式钉死 VC++ 运行库 + Pillow 的图像依赖（真机
+        # 2026-11-24 20:47 实锤）—— PyInstaller 依赖扫描从 PATH 上的
+        # base Anaconda 抓来旧版 msvcp140.dll（**14.27**），而其余 CRT
+        # 是 cpu_default 的 14.44 → onnxruntime 初始化即访问冲突
+        # 0xc0000005（Windows 事件日志崩溃模块 = MSVCP140.dll），
+        # GUI 停在「初始化 OCR 引擎...」后无声退出。
+        # 同一审计还发现 Pillow 的 9 个依赖（freetype/libjpeg/libpng/
+        # tiff/zstd/...) 也全部来自 base，与 PIL 的 .pyd 不同源。
+        # 一律改为取当前解释器所在环境的版本（与 v2.3.55 OpenSSL、
+        # v2.4.17 Tcl 同款修法：后写覆盖，TOC 同名去重保留后者）。
+        *([
+            (os.path.join(os.path.dirname(sys.executable),
+                          'Library', 'bin', _n), '.')
+            for _n in (
+                'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
+                'vcruntime140.dll', 'vcruntime140_1.dll',
+                'freetype.dll', 'lcms2.dll', 'libbz2.dll', 'libjpeg.dll',
+                'liblzma.dll', 'libpng16.dll', 'openjp2.dll',
+                'tiff.dll', 'zstd.dll',
+            )
+            if os.path.isfile(os.path.join(
+                os.path.dirname(sys.executable), 'Library', 'bin', _n))
+        ]),
     ],
     datas=[
         ('model/ocr', 'model/ocr'),   # MaaOCR 模型文件（det.onnx + rec.onnx + keys.txt）
