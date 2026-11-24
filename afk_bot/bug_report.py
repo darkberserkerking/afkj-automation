@@ -2,7 +2,8 @@
 
 设计要点
 ────────
-1. **本地永远先落盘**（`logs/bug_reports/<时间戳>/`）：
+1. **本地永远先落盘**（`<数据目录>/logs/bug_reports/<时间戳>/`，
+   打包时数据目录 = `%LOCALAPPDATA%\\AFKJ自动化工具`，见 app_paths.py）：
    - `shot.png`  游戏窗口截图（ImageGrab 按窗口 rect 裁剪；Unity 下 PrintWindow 全黑，不能用）
    - `app.log`   日志尾部（默认最后 800 行）
    - `meta.json` 版本 / 窗口 / 任务 / 异常栈 / 时间
@@ -75,7 +76,19 @@ def _root() -> Path:
 
 
 def reports_dir() -> Path:
-    d = _root() / 'logs' / 'bug_reports'
+    """报告落盘目录（v2.4.13：改走运行期数据目录）。
+
+    历史：v2.4.12 之前返回 `_root()/logs/bug_reports`，打包后 `_root()`
+    就是 exe 目录 → 用户把 exe 放桌面时，桌面凭空多出 `logs\\` 文件夹，
+    且 Program Files 下因 UAC 无法创建。现与其它运行期数据统一到
+    `app_paths.data_dir()`（打包 = %LOCALAPPDATA%\\AFKJ自动化工具）。
+    """
+    try:
+        import app_paths
+        base = Path(app_paths.data_dir())
+    except Exception:                       # 极端兜底：保持旧行为
+        base = _root()
+    d = base / 'logs' / 'bug_reports'
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -399,15 +412,28 @@ def _read_version() -> str:
 
 
 def _read_app_log_tail() -> List[str]:
-    """读工程根下的 app 日志尾部（GUI 的 _append_log 会写文件）。"""
-    for name in ('afk_app.log', '_afk_gui_log.txt'):
-        p = _root() / name
-        if p.is_file():
-            try:
-                data = p.read_text(encoding='utf-8', errors='ignore')
-                return data.splitlines()[-LOG_TAIL_LINES:]
-            except Exception:
-                pass
+    """读 app 日志尾部（GUI 的 _append_log 会写文件）。
+
+    v2.4.13：`_afk_gui_log.txt` 已随运行期数据迁到 `app_paths.data_dir()`，
+    故先查数据目录、再回落 `_root()`（兼容 v2.4.12 之前的旧 exe 目录）。
+    两个候选都查，避免升级后首轮读不到日志、Bug 报告缺日志尾巴。
+    """
+    bases: List[Path] = []
+    try:
+        import app_paths
+        bases.append(Path(app_paths.data_dir()))
+    except Exception:
+        pass
+    bases.append(_root())
+    for base in bases:
+        for name in ('afk_app.log', '_afk_gui_log.txt'):
+            p = base / name
+            if p.is_file():
+                try:
+                    data = p.read_text(encoding='utf-8', errors='ignore')
+                    return data.splitlines()[-LOG_TAIL_LINES:]
+                except Exception:
+                    pass
     return []
 
 

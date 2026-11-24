@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-24T02:08:56Z",
+  "updated_at": "2026-11-24T02:25:59Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -17,9 +17,9 @@
     },
     "AFKJ自动化工具.spec": {
       "role": "index",
-      "sha256": "1109f2bcf1fd61f52d60ab16d2e2cd0dab624e3f01f11e89f7745d75c2b2dcd3",
+      "sha256": "50ee368714eba3c367a8110a0a93113204420068bf3407e4b69790c83c451429",
       "size": 3929,
-      "normalized_sha256": "1109f2bcf1fd61f52d60ab16d2e2cd0dab624e3f01f11e89f7745d75c2b2dcd3"
+      "normalized_sha256": "50ee368714eba3c367a8110a0a93113204420068bf3407e4b69790c83c451429"
     },
     "AGENTS.md": {
       "role": "index",
@@ -82,15 +82,15 @@
     },
     "afk_bot/bug_report.py": {
       "role": "index",
-      "sha256": "aaa9eb83c5436ef26d553462dbbf8c9841796fc812166edc396bed3e6c246e6e",
-      "size": 28688,
-      "normalized_sha256": "4fd2a26402c3516148e60c73c402458e21490ddfa88cc9d876cf7104d7a825f6"
+      "sha256": "14b3a64e291ed1e81ad819363046d137ad76879d82cfd34e6a3d6e86af19f11a",
+      "size": 29903,
+      "normalized_sha256": "355eee82e8cb74f211a4e49bf678ed1665ba7aca3da3c536330572f44b0a88e6"
     },
     "afk_bot/config.py": {
       "role": "index",
-      "sha256": "0e1bc2bccb8504c79e1d1c94c2ff3f7371cc7ffdaa884deec53ff1b52eb7427b",
+      "sha256": "2bcf31d1d9ae217079c23de9854a80d84601ebb269b3a80b8c6c4d7e42b6b523",
       "size": 7076,
-      "normalized_sha256": "0e1bc2bccb8504c79e1d1c94c2ff3f7371cc7ffdaa884deec53ff1b52eb7427b"
+      "normalized_sha256": "2bcf31d1d9ae217079c23de9854a80d84601ebb269b3a80b8c6c4d7e42b6b523"
     },
     "afk_bot/facade.py": {
       "role": "index",
@@ -189,9 +189,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "4298a285c4c96313a95dcd9a185eb4a7601baf57b7492114f0d2e16d782b7016",
-      "size": 28697,
-      "normalized_sha256": "4298a285c4c96313a95dcd9a185eb4a7601baf57b7492114f0d2e16d782b7016"
+      "sha256": "f8011b07a0d8a39c3a1858e667e5bf40cb5466ec4d1fd47273937ecc5d505b4a",
+      "size": 28832,
+      "normalized_sha256": "f8011b07a0d8a39c3a1858e667e5bf40cb5466ec4d1fd47273937ecc5d505b4a"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -985,9 +985,9 @@
     },
     "tests/test_data_dir.py": {
       "role": "observe",
-      "sha256": "f90f607963dad33b8a810aa70ab0909abfb0a2b815c6d6862ceefeadae0fbe10",
-      "size": 7294,
-      "normalized_sha256": "f90f607963dad33b8a810aa70ab0909abfb0a2b815c6d6862ceefeadae0fbe10"
+      "sha256": "0502a7765a53710a641599c09cbbf00c90f7f4472f3cc37b1e9445dc57df16f3",
+      "size": 8182,
+      "normalized_sha256": "0502a7765a53710a641599c09cbbf00c90f7f4472f3cc37b1e9445dc57df16f3"
     },
     "tests/test_detector_season_idle.py": {
       "role": "observe",

@@ -149,11 +149,29 @@ check('4c game_launcher 配置在数据目录',
       len(lines) >= 3 and os.path.normcase(os.path.dirname(lines[2])) == norm,
       lines[2] if len(lines) > 2 else '')
 
-# ── ⑤ 版本号与 spec 同步 ─────────────────────────────────────
+# ── ⑤ Bug 报告目录与日志尾部也走数据目录（v2.4.13）──────────
+from afk_bot import bug_report as _br   # noqa: E402
+_old_env = os.environ.get('AFKJ_DATA_DIR')
+os.environ['AFKJ_DATA_DIR'] = td3        # 让 app_paths 解析到本用例的临时目录
+_rd = _br.reports_dir()
+check('5c bug_reports 落在数据目录',
+      os.path.normcase(str(_rd)).startswith(os.path.normcase(td3)),
+      str(_rd))
+# 数据目录里的 _afk_gui_log.txt 必须能被读取（升级后不再读旧 exe 目录）
+with open(os.path.join(td3, '_afk_gui_log.txt'), 'w', encoding='utf-8') as f:
+    f.write('line-A\nline-B\n')
+_tail = _br._read_app_log_tail()
+check('5d 日志尾部能从数据目录读到', _tail[-1:] == ['line-B'], str(_tail)[:120])
+if _old_env is None:
+    os.environ.pop('AFKJ_DATA_DIR', None)
+else:
+    os.environ['AFKJ_DATA_DIR'] = _old_env
+
+# ── ⑥ 版本号与 spec 同步 ─────────────────────────────────────
 from afk_bot import config as _cfg   # noqa: E402
-check('5a config.VERSION = v2.4.12', _cfg.VERSION == 'v2.4.12', _cfg.VERSION)
+check('6a config.VERSION = v2.4.13', _cfg.VERSION == 'v2.4.13', _cfg.VERSION)
 spec = open(os.path.join(ROOT, 'AFKJ自动化工具.spec'), encoding='utf-8').read()
-check('5b spec 名称含同一版本号', f'AFKJ自动化工具{_cfg.VERSION}' in spec)
+check('6b spec 名称含同一版本号', f'AFKJ自动化工具{_cfg.VERSION}' in spec)
 
 for d in (td1, td2, exe_dir, localapp, exe_dir2, localapp2, td3):
     shutil.rmtree(d, ignore_errors=True)
