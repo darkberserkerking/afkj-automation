@@ -169,12 +169,21 @@ def resolve_launch_args() -> List[str]:
 
 
 def find_game_window(bot=None) -> Optional[int]:
-    """严格查找游戏窗口（v2.1.0）。
+    """严格查找游戏窗口（v2.1.0 建立，v2.4.21 补可见性/尺寸）。
 
-    判据：顶层窗口标题**命中游戏词**（afk journey/剑与远征/启程）
-    且不含启动器词（farlight/launcher/loader）。
-    ——不再使用「Unity 类名即认」的宽判据：Farlight Launcher、其他
-    Unity 程序、无标题窗口都会误判（真机 20:22 启动游戏被判「已在运行」）。
+    判据（四条全部满足）：
+      ① 标题命中游戏词（afk journey/剑与远征/启程）
+      ② 标题不含启动器词（farlight/launcher/loader）
+      ③ **窗口可见**（IsWindowVisible）
+      ④ **窗口尺寸 > 0**
+
+    历史：
+      v2.1.0 去掉「Unity 类名即认」的宽判据（Farlight Launcher、其他
+        Unity 程序、无标题窗口都会误判）。
+      v2.4.21 真机 2026-11-25 06:04：日志报「游戏已在运行」但实际没启动，
+        后续任务「未找到游戏窗口」。根因是只比标题不看可见性 —— 隐藏窗口
+        也会命中，而截图器（要求 Unity 类名 + 尺寸）看不到它。③④ 与截图器
+        对齐，避免「判定在运行」与「能否操作」两套标准。
     """
     try:
         import win32gui  # type: ignore
@@ -187,8 +196,20 @@ def find_game_window(bot=None) -> Optional[int]:
                     return
                 if any(k in t for k in _NOT_GAME_TITLE_KWS):
                     return
-                if any(k in t for k in _GAME_TITLE_KWS):
-                    r.append(h)
+                if not any(k in t for k in _GAME_TITLE_KWS):
+                    return
+                # v2.4.21（真机 2026-11-25 06:04）：必须**可见且尺寸有效**。
+                # 旧实现只比标题，连 IsWindowVisible 都不看 —— 任何隐藏窗口
+                # 或后台程序窗口只要标题碰巧含「启程」就被判「游戏已在运行」，
+                # 启动任务直接 done；而截图器（screen.find_hwnd 要求 Unity
+                # 类名 + 尺寸）根本找不到该窗口 → 后续任务全部
+                # 「未找到游戏窗口」。两套判据必须对齐。
+                if not win32gui.IsWindowVisible(h):
+                    return
+                _l, _t, _r, _b = win32gui.GetWindowRect(h)
+                if (_r - _l) <= 0 or (_b - _t) <= 0:
+                    return
+                r.append(h)
             except Exception:
                 pass
 

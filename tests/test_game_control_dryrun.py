@@ -204,6 +204,84 @@ finally:
     if _wg_real is not None:
         _sys.modules['win32gui'] = _wg_real
 
+print('── 10. v2.4.21：「已在运行」≠ 可交互（真机 2026-11-25 06:04 假成功）──')
+# 真机日志：
+#   06:04:52 [启动游戏] [成功] 游戏已在运行，不执行任何操作
+#   06:05:09 [跳过] 一键家园 —— 未找到游戏窗口（请先启动游戏）
+# 实际游戏并未运行。根因两层：窗口判据不看可见性（隐藏窗口标题含「启程」
+# 即命中），且「已运行」分支只判 is_game_running 就 return done，没走
+# v2.2.5 那套 is_game_ready 校验。
+_wg_real2 = _sys.modules.get('win32gui')
+try:
+    # 10a/10b：窗口判据必须忽略隐藏窗口与 0 尺寸窗口
+    _st2 = {'visible': True, 'rect': (0, 0, 1280, 1024), 'title': '剑与远征：启程'}
+    _fake2 = _types.ModuleType('win32gui')
+    _fake2.GetWindowText = lambda h: _st2['title']
+    _fake2.IsWindowVisible = lambda h: _st2['visible']
+    _fake2.GetWindowRect = lambda h: _st2['rect']
+    _fake2.GetClassName = lambda h: 'UnityWndClass'
+    _fake2.EnumWindows = lambda cb, p: cb(777, p)
+    _sys.modules['win32gui'] = _fake2
+
+    check('10a 可见且尺寸有效的游戏窗口 → 命中',
+          gl.find_game_window() == 777, str(_st2))
+    _st2['visible'] = False
+    check('10b 【分叉】隐藏窗口即使标题命中也不认（真机假阳性根因）',
+          gl.find_game_window() is None, '旧实现只比标题 → 返回 777')
+    _st2['visible'] = True
+    _st2['rect'] = (0, 0, 0, 0)
+    check('10c 0 尺寸窗口不认（未渲染）',
+          gl.find_game_window() is None, '旧实现不查尺寸')
+    _st2['rect'] = (0, 0, 1280, 1024)
+finally:
+    if _wg_real2 is not None:
+        _sys.modules['win32gui'] = _wg_real2
+
+# 10d/10e：已运行但画面不可用 → 不得报 done
+gc.is_game_running = _SeqDrawer([True])
+gc.is_game_ready = lambda bot=None, **kw: False
+_nolaunch = []
+gc.launch_game = lambda p, a: _nolaunch.append(1) or True
+gc.resolve_launcher_path = lambda: r'D:\Farlight Launcher\Launcher.exe'
+
+
+class _FBot2:
+    def find_and_focus(self):
+        return None
+
+
+t10, logs10 = make_task(StartGameTask, bot=_FBot2())
+t10._sleep = lambda *a, **k: None        # 不真等 120s
+r10 = t10.run()
+check('10d 已运行但画面不可用 → 不再直接 done（真机假成功根因）',
+      r10 != 'done', f'result={r10}')
+check('10e 日志明确说明「画面不可用」并不重复启动',
+      any('画面不可用' in m for m in logs10) and not _nolaunch,
+      str([m for m in logs10 if '不可用' in m][:1]))
+check('10f 因此不再出现「已在运行，不执行任何操作」的假绿',
+      not any('游戏已在运行' in m for m in logs10),
+      str([m for m in logs10 if '已在运行' in m][:1]))
+
+# 10g：已运行且确实就绪 → 仍要 done，并且要做激活（防止"就绪但后台"）
+gc.is_game_running = _SeqDrawer([True])
+gc.is_game_ready = lambda bot=None, **kw: True
+_focus2 = []
+
+
+class _FBot3:
+    def find_and_focus(self):
+        _focus2.append(1)
+        return 555
+
+
+t11, logs11 = make_task(StartGameTask, bot=_FBot3())
+t11._sleep = lambda *a, **k: None
+r11 = t11.run()
+check('10g 真正就绪时仍报 done', r11 == 'done', f'result={r11}')
+check('10h 就绪分支同样做了窗口激活（v2.2.5 约束不能只用于启动路径）',
+      len(_focus2) >= 1 and any('已激活游戏窗口' in m for m in logs11),
+      f'calls={len(_focus2)}')
+
 print(f'══ 启动/关闭游戏干跑：通过 {len(_PASS)}/{len(_PASS) + len(_FAIL)} ══')
 if _FAIL:
     print('失败项：')

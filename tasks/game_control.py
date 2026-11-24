@@ -135,9 +135,22 @@ class StartGameTask(BaseTask):
     def run(self) -> str:
         self.log("启动（启动游戏）")
         # ① 状态检测
+        # v2.4.21（真机 2026-11-25 06:04）：「已在运行」不能只看进程/窗口
+        # 是否存在 —— 必须与后面的启动路径用**同一套就绪判据**。
+        # 旧实现这一分支只有 is_game_running 就 return done，于是：
+        #   判据假阳性（隐藏窗口标题含「启程」）→ 报「已在运行」→ done
+        #   → 截图器找不到窗口 → 后续任务全部「未找到游戏窗口」
+        # 真机日志：06:04:52「游戏已在运行」→ 06:05:09「未找到游戏窗口」。
         if is_game_running(self.bot):
-            self.log("[成功] 游戏已在运行，不执行任何操作")
-            return 'done'
+            if is_game_ready(self.bot):
+                self.log("[成功] 游戏已在运行，不执行任何操作")
+                # v2.2.5 的教训同样适用于本分支：就绪 ≠ 前台可截图
+                self._activate_game_window()
+                return 'done'
+            self.log("[警告] 检测到游戏进程/窗口，但画面不可用"
+                     "（未渲染 / 已最小化 / 非游戏窗口）")
+            self.log("[信息] 不重复启动，等待画面就绪…")
+            return self._wait_until_ready(launched=False)
         # ② 解析启动器路径（跨环境适配）
         path = resolve_launcher_path()
         if not path:
@@ -155,8 +168,21 @@ class StartGameTask(BaseTask):
         if not launch_game(path, args):
             self.log("[错误] 启动器进程创建失败（路径不可执行？）")
             return 'failed'
+        return self._wait_until_ready(launched=True)
+
+    def _wait_until_ready(self, launched: bool) -> str:
+        """等待游戏画面就绪 —— 启动后与「已在运行但不可用」两条路径共用。
+
+        v2.4.21：抽成公共方法，杜绝「同一条约束只应用在一条分支」这类漂移。
+        起点判定、窗口绑定、加载页正向判据、收尾激活都只有一份实现。
+
+        Args:
+            launched: True = 本次刚拉起启动器（窗口可能尚未出现）；
+                      False = 进程/窗口已在但画面不可用（窗口本应存在）
+        """
         waited = 0.0
-        _win_logged = False
+        # launched=False 时窗口本应已在，不再打「窗口已出现」
+        _win_logged = not launched
         _ready_streak = 0
         while waited < _WAIT_MAX_S:
             if self.check_stop():
