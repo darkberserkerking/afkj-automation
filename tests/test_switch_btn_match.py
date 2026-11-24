@@ -181,6 +181,46 @@ else:
           and abs(cy_b - expect[1]) <= 3,
           f'分数={val_b:.3f} 命中({cx_b},{cy_b}) 期望{expect}')
 
+    # ── ⑦ 镜像箭头（左 ‹）不得被误认 ─────────────────────────
+    # 真机 2026-11-24 截图（1278x1024）实测：右箭头 rx=0.687 → 0.993；
+    # 同一画面的左箭头 rx=0.302 → 只有 **0.489**（模板是右箭头，方向相反，
+    # masked NCC 区分度足够）。
+    # 这条最关键：把左边界放宽到 0.30 后，左箭头确实落在区域内，必须证明
+    # 它的分数不足以触发点击——否则到最后一组（右箭头消失、左箭头仍在）
+    # 会误判「还有可切阵容」而反复点左箭头，形成死循环。
+    mirror = np.ascontiguousarray(tpl_rgba[:, ::-1, :])
+    W, H = 1278, 1024
+    img_m, expect_r = _build_screen(W, H, 0.687, 0.537, tpl_rgba, seed=21)
+    # 在 rx=0.302 叠一个水平镜像的箭头
+    mb, ma = mirror[:, :, :3].astype(np.float32), mirror[:, :, 3:4].astype(np.float32) / 255.0
+    th, tw = mirror.shape[:2]
+    mx, my = int(0.302 * W) - tw // 2, int(0.544 * H) - th // 2
+    roi = img_m[my:my + th, mx:mx + tw].astype(np.float32)
+    img_m[my:my + th, mx:mx + tw] = np.clip(
+        mb * ma + roi * (1 - ma), 0, 255).astype(np.uint8)
+    val_m, cx_m, cy_m, _ = _scan(_region(W, H), img_m, tpl_bgr, mask)
+    check('7a 镜像左箭头在场时仍命中右箭头',
+          val_m >= THRESHOLD and abs(cx_m - expect_r[0]) <= 3
+          and abs(cy_m - expect_r[1]) <= 3,
+          f'分数={val_m:.3f} 命中({cx_m},{cy_m}) 期望{expect_r}')
+
+    # 单独测镜像箭头本身：分数必须 < 阈值（真机实测 0.489）
+    only_m = np.zeros((320, 320, 3), dtype=np.uint8)
+    only_m[:] = 40
+    roi = only_m[100:100 + th, 100:100 + tw].astype(np.float32)
+    only_m[100:100 + th, 100:100 + tw] = np.clip(
+        mb * ma + roi * (1 - ma), 0, 255).astype(np.uint8)
+    r_m = _masked_template_scan(only_m, tpl_bgr, mask, (0.5, 2.0, 0.1))
+    val_only = r_m[0] if r_m else 0.0
+    check('7b 纯镜像箭头分数 < 阈值（真机 0.489，不会误点左箭头）',
+          val_only < THRESHOLD, f'{val_only:.3f}')
+
+    # ── ⑧ 最后一组：右箭头消失、仅剩左箭头 → 不得误判「还有阵容」──
+    img_last, _ = _build_screen(W, H, 0.302, 0.544, mirror, seed=31)
+    val_last, _cx_l, _cy_l, _ = _scan(_region(W, H), img_last, tpl_bgr, mask)
+    check('8 仅剩左箭头时区域内 < 阈值（has_switch_button 正确判 False）',
+          val_last < THRESHOLD, f'{val_last:.3f}')
+
 print('\n' + '=' * 56)
 if FAILED:
     print(f'❌ 失败 {len(FAILED)} 项：')
