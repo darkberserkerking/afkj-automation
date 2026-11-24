@@ -31,10 +31,10 @@ loop.py[AB9L]: F:推图主循环编排：导航-阵容-战斗-结算状态机与
 ===/<repository>/afk_bot/infra/===
 __init__.py[CG4T]: F:infra 层包说明：任一任务启动前必须就绪的公共地基 | R:- | A:- | S:-
 coordinate.py[CD8S]: F:坐标换算唯一入口：图像、屏幕、比例坐标互转 | R:code:afk_bot/infra/screen.py | A:image_to_screen,ratio_to_image,refresh,client_offset | S:image_to_screen 是唯一通往屏幕坐标的路径；ClientToScreen 偏移被缓存，窗口移动或缩放后必须 refresh 才准确
-input.py[CH8L]: F:输入注入：点击、拖拽、滚轮、按键与模板匹配 | R:code:afk_bot/infra/coordinate.py,code:afk_bot/infra/screen.py | A:click_at,click_ratio,click_ratio_dual,template_match,_load_tpl_cached | S:透明背景模板不能用 TM_CCOEFF_NORMED（不收 mask），须走 _masked_ccoeff_map；裸模板名必须经 _resolve_tpl_path 兜底到 templates；模板解码走 _load_tpl_cached 缓存（键含路径+mtime_ns+size，返回的 ndarray 只读禁改）；多尺度改两段式后，快扫（0.9~1.1）必须 ≥max(threshold,0.75) 才允许短路，否则回落全范围——低分伪匹配短路会漏掉全范围的真匹配，比不改更糟；全屏 16 尺度实测 3074ms，快路径 533ms，未命中场景多花 12%
+input.py[CH8L]: F:输入注入：点击、拖拽、滚轮、按键与模板匹配 | R:code:afk_bot/infra/coordinate.py,code:afk_bot/infra/screen.py | A:click_at,click_ratio,click_ratio_dual,template_match,_load_tpl_cached,wait_after_click | S:透明背景模板不能用 TM_CCOEFF_NORMED（不收 mask），须走 _masked_ccoeff_map；裸模板名必须经 _resolve_tpl_path 兜底到 templates；模板解码走 _load_tpl_cached 缓存（键含路径+mtime_ns+size，返回的 ndarray 只读禁改）；多尺度两段式的快扫（0.9~1.1）必须 ≥max(threshold,0.75) 才允许短路，否则回落全范围——低分伪匹配短路会漏掉真匹配；region 未达阈值默认全屏兜底（fallback_full=True），只有反向判定才可关，否则会丢目标；click_at 尾部改 wait_after_click 等画面稳定，max_wait 取原固定值以保证最坏情况与旧行为等价
 ocr_engine.py[MA8M]: F:OCR 文本查找：NFKC 归一化、精确/模糊/排除查找与带记忆查找 | R:code:afk_bot/infra/screen.py,code:afk_bot/infra/ocr_memory.py | A:find_text,find_text_exact,find_text_exclude,find_with_memory | S:比较前必须做 NFKC 归一化，否则全角与异体字会导致漏匹配；底层 OCR 一律走 ScreenCapture，勿在此直连引擎
 ocr_memory.py[MP7M]: F:OCR 策略记忆：按场景与关键词记录最优识别策略并持久化 | R:code:afk_bot/infra/ocr_engine.py | A:remember,get_strategy,get_attempt_order,find_text_with_memory | S:策略库落盘 ocr_memory.json 属本机状态（已 gitignore），删除只降低命中率、不影响正确性
-screen.py[CO9L]: F:窗口定位、截图与 OCR（支持全屏或 ROI，带指纹缓存） | R:code:afk_bot/infra/coordinate.py | A:find_and_focus,snap,ocr_screen,frame_fingerprint,debug_screenshot | S:snap 返回 (图,client_l,client_t,w,h) 的顺序被全项目依赖；OCR 缓存键必须是 **(10 采样点指纹, roi) 二元组**——指纹按整图采样，同帧不同 roi 指纹相同，只按指纹做键会把 A 区结果当 B 区返回（静默错数据）；TTL 60s，采样点减少会让弹窗变化复用旧结果；ocr_screen 的 roi 为相对截图左上角的绝对像素，透传 MaaOCR.recognize，**返回坐标已还原到整图**，调用方无需再加偏移；实测全屏 1280x1024 为 1501ms、ROI 400x300 为 597ms
+screen.py[CO9L]: F:窗口定位、截图与 OCR（支持全屏或 ROI，带指纹缓存） | R:code:afk_bot/infra/coordinate.py | A:find_and_focus,snap,ocr_screen,frame_fingerprint,debug_screenshot | S:snap 返回 (图,client_l,client_t,w,h) 的顺序被全项目依赖；OCR 缓存键必须是 **(10 采样点指纹, roi) 二元组**——指纹按整图采样，同帧不同 roi 指纹相同，只按指纹做键会把 A 区结果当 B 区返回（静默错数据）；TTL 60s；ocr_screen 的 roi 为相对截图左上角的绝对像素，透传 MaaOCR.recognize，**返回坐标已还原到整图**；roi 为空且 fallback_full=True（默认）时自动全屏兜底并告警——这是「ROI 不能丢目标」的安全网，只有反向判定才可传 False；实测全屏 1280x1024 为 507~1501ms，ROI 400x300 为 195~597ms
 stats.py[CO5S]: F:战斗统计：胜场、耗时与关卡进度并推送 GUI | R:code:afk_gui.py | A:push,record_battle_result,increment,get | S:push 的关卡推进带去重，重复推送会让 GUI 进度回退；字典读写在锁内完成
 timing.py[RR7T]: F:分段可中断休眠，停止信号最坏延迟约 0.1s | R:code:afk_bot/auto_farm/battle.py | A:sleep_interruptible,SLEEP_STEP | S:引擎层禁止再写裸 time.sleep（会绕过停止信号）；未传 should_stop 时退化为普通休眠，不具备中断能力
 
@@ -62,7 +62,7 @@ v1.8.49_审查报告.md[SG4S]: F:v1.8.49 规范沉淀、审查问题清单与变
 目录结构说明.md[SG5S]: F:项目目录结构的整理记录（v2.2.0）与各目录职责 | R:code:afk_bot/__init__.py | A:- | S:-
 规范总览.md[SG7S]: F:规范总览：架构、日志、命名与界面判据的汇聚，每条标注来源 | R:code:docs/开发指导手册.md | A:- | S:每条规范后必须保留来源标注（手册/记忆/代码事实/截图），无来源的判断不得升为规范
 静态扫描_F821_报告.md[SG4S]: F:全库 F821 未定义名静态扫描报告，针对 py_compile 查不出的运行时地雷 | R:code:afk_gui.py | A:- | S:py_compile 与 Mock 干跑查不出 f-string 里写错变量名，改日志文案后须跑一次静态扫描
-MaaFramework-学习与迁移计划.md[SZ3T]: F:dev 分支「对齐 MaaFramework」三阶段路线图：阶段 1 基础设施提速、阶段 2 判定模型重构、阶段 3 引擎引入（待决策） | R:- | A:- | S:对方为 AGPL-3.0；阶段 1/2 不引入其代码无需改证；复制代码或作依赖分发须整体转 AGPL
+MaaFramework-学习与迁移计划.md[SZ3T]: F:dev 分支「对齐 MaaFramework」三阶段路线图 + ROI 安全网设计（阶段 1 已完成 1.1~1.4） | R:- | A:- | S:对方为 AGPL-3.0；阶段 1/2 不引入其代码无需改证；复制代码或作依赖分发须整体转 AGPL
 
 ===/<repository>/docs/history/===
 overview_v1.5.6.md[SG3T]: F:v1.5.6 交付报告：品牌重命名与三层架构重构 | R:code:AFKJ自动化工具.spec | A:- | S:-
@@ -124,3 +124,4 @@ tianqiong_trial.py[DB8L]: F:天穹试炼：四塔轮换，逐塔逐层挑战至�
 ===/<repository>/tools/===
 launch_source.bat[OV5S]: F:源码模式启动脚本：探测可用解释器后拉起 afk_gui.py，无写死路径 | R:code:afk_gui.py | A:- | S:必须保持纯 ASCII；解释器按 AFKJ_PYTHON、PATH、conda 各环境顺序探测，且必须能 import 全部依赖才采用；不尝试提权（提权用 launch_source_admin）
 launch_source_admin.py[OV6S]: F:带管理员清单的极简源码启动器：提权后定位项目根并拉起源码版 | R:code:tools/launch_source.bat,code:afk_gui.py | A:main,find_pythonw | S:bat 与 pythonw 无应用清单无法自提权，故用 --uac-admin 小 launcher；项目根取本文件上两级，打包后取 AFKJ_SOURCE_DIR 或 exe 目录；解释器探测顺序与 bat 一致
+suggest_roi.py[XZ3T]: F:ROI 建议工具：对一张真实界面截图跑全部模板，输出命中位置/相对位置/建议 ROI（命中框±PAD） | R:code:afk_bot/infra/input.py | A:main,_match_one | S:仅当前界面成立，换界面须重跑；位置随宽高比漂移的按钮不得据其收窄

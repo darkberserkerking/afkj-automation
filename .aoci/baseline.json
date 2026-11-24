@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-24T22:44:18Z",
+  "updated_at": "2026-11-24T23:04:10Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -112,9 +112,9 @@
     },
     "afk_bot/infra/input.py": {
       "role": "index",
-      "sha256": "b84fb953c0f1ee62f74e7ae10ae752780163c221ab7eff870593cefba9aad441",
-      "size": 33804,
-      "normalized_sha256": "484c39ef7f816fe684b1391f4ed3cb0fe5da61e68aba64a00396f3730ea407c0"
+      "sha256": "032857f66e02108f3f0b41a0e61b49389707ce1f7569cdc1006fbc96829e9dad",
+      "size": 37514,
+      "normalized_sha256": "027ff2b21490f21462614597172d8d4f88a01094926e0d84865354a41d1f3bd1"
     },
     "afk_bot/infra/ocr_engine.py": {
       "role": "index",
@@ -130,9 +130,9 @@
     },
     "afk_bot/infra/screen.py": {
       "role": "index",
-      "sha256": "a72d51a40f1f6d3b2fe1bc820e613591ee114658311dd376f38134ae3b131ba3",
-      "size": 28125,
-      "normalized_sha256": "6160c54932ea74e41cd44cccd2f92caa64ff2288342c7b5a1589a33a65f96ff3"
+      "sha256": "b739e241dc99ba726c9d8e5b7ef386d562e25a88bb843af8b04d01f477054cd8",
+      "size": 29179,
+      "normalized_sha256": "5e1a978002701eabbfd6c77bb65473e4c2ffcf5fc6e43f8a58a0588570213b0e"
     },
     "afk_bot/infra/stats.py": {
       "role": "index",
@@ -189,9 +189,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "791ff094bae1b0813080380e9c6effebe82812e676314159ff0ef06db05c746f",
-      "size": 32528,
-      "normalized_sha256": "791ff094bae1b0813080380e9c6effebe82812e676314159ff0ef06db05c746f"
+      "sha256": "4ab932cb4223345a005e24af56d37d988d260e9293794a5fd6932e28f20f1499",
+      "size": 33014,
+      "normalized_sha256": "4ab932cb4223345a005e24af56d37d988d260e9293794a5fd6932e28f20f1499"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -219,9 +219,9 @@
     },
     "docs/MaaFramework-学习与迁移计划.md": {
       "role": "index",
-      "sha256": "408af545f531a0eb02647d983ab4efa848612260b21e3f673fb1bbd42f1190d1",
-      "size": 5285,
-      "normalized_sha256": "408af545f531a0eb02647d983ab4efa848612260b21e3f673fb1bbd42f1190d1"
+      "sha256": "5e092502b078d908a434127af28939e084fafa6ffebefccbb2aaee5c3a86df6a",
+      "size": 7497,
+      "normalized_sha256": "5e092502b078d908a434127af28939e084fafa6ffebefccbb2aaee5c3a86df6a"
     },
     "docs/history/overview_v1.5.6.md": {
       "role": "index",
@@ -895,9 +895,9 @@
     },
     "tests/run_tests.py": {
       "role": "observe",
-      "sha256": "9596729806357b2fcf97cbf240251e31f0d9b8ee3dbd6caeb756db7e5f510488",
-      "size": 23404,
-      "normalized_sha256": "22e2c37ab29998fc2502707d775949637ee203d6bf3884aac1dc15a10b7cf08f"
+      "sha256": "9f5aa2bc2861e156ccff6a48c605a9526c4ac5b82002f7127b8bca9d4cb9f962",
+      "size": 23511,
+      "normalized_sha256": "3df5273dfd083a535eddd1ecad94484ae2bf51db0c46cfcdc40b04692553cb67"
     },
     "tests/test_afk_limit_confirm.py": {
       "role": "observe",
@@ -1253,6 +1253,12 @@
       "size": 4567,
       "normalized_sha256": "02bc7e53829ad0757bfb005fcaf03c847021522757b0f464339b56f496e0b4af"
     },
+    "tests/test_roi_safety.py": {
+      "role": "observe",
+      "sha256": "c02dabbfeb4a67b465b3387553053f62097aa75cfe9f6e73ee0d804c280d377d",
+      "size": 7882,
+      "normalized_sha256": "c02dabbfeb4a67b465b3387553053f62097aa75cfe9f6e73ee0d804c280d377d"
+    },
     "tests/test_run_tests_scheduler.py": {
       "role": "observe",
       "sha256": "c33f843584e4cacf6b68a04ad34ddce1807e8e9dafe052b0d154f4ddca25029c",
@@ -1432,6 +1438,12 @@
       "sha256": "a47da5af724361d5f9105914b2439daa3a48af619b1f4a1a1642c3a439c6d0c8",
       "size": 5731,
       "normalized_sha256": "bec91e6d4d0dd6be2e2286e53c4246756410d68d8c57b20c8464ee77029a916f"
+    },
+    "tools/suggest_roi.py": {
+      "role": "index",
+      "sha256": "8d181c5a1c26e9f9cfe0200763a243681400f85c79d6b44ed52c98de421b7da6",
+      "size": 5036,
+      "normalized_sha256": "8d181c5a1c26e9f9cfe0200763a243681400f85c79d6b44ed52c98de421b7da6"
     },
     "tools/test_updater_e2e.py": {
       "role": "observe",
