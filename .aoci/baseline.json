@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-24T23:13:48Z",
+  "updated_at": "2026-11-24T23:28:13Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -88,9 +88,9 @@
     },
     "afk_bot/config.py": {
       "role": "index",
-      "sha256": "506ca106082f12d69401ba278c55c1e5a062ad4f0b643e71bfa2286a13dffd64",
+      "sha256": "2145df47923bcd60344526ae94de6daf47a0d4939c70b7d37c69a8d6ee623eb0",
       "size": 7877,
-      "normalized_sha256": "506ca106082f12d69401ba278c55c1e5a062ad4f0b643e71bfa2286a13dffd64"
+      "normalized_sha256": "2145df47923bcd60344526ae94de6daf47a0d4939c70b7d37c69a8d6ee623eb0"
     },
     "afk_bot/facade.py": {
       "role": "index",
@@ -118,9 +118,9 @@
     },
     "afk_bot/infra/input.py": {
       "role": "index",
-      "sha256": "0a2f158a253d6dc6dc6f2a17c90261942b61ba2ee2ff078580bba7d0aa032a02",
-      "size": 38210,
-      "normalized_sha256": "2dd560c87000d923d023528e8d2a3e4b9ffaa962e5d66c7602f8f29dff0e6079"
+      "sha256": "5e827f16c451f280ddcd839da63f09f6571ff5249c5ea9f2cca9b428a0d04078",
+      "size": 39618,
+      "normalized_sha256": "fdb1588b24a9d3054485b6753bc4b9394e27ed0d0fd517e8bd0bcba48b1be3e2"
     },
     "afk_bot/infra/ocr_engine.py": {
       "role": "index",
@@ -136,9 +136,9 @@
     },
     "afk_bot/infra/screen.py": {
       "role": "index",
-      "sha256": "706ad0299ffecc657b10c0d80f047ec0ff90b4c9b54b71f801e23c6ea8359b42",
-      "size": 29706,
-      "normalized_sha256": "92ac546db00abf855a5a042e627a8b7f24d3ec9a60c96600fbf862cc902c5fc1"
+      "sha256": "7b9d0ef80fbf732311188bde20dd81bb28a0030f7505a68abe367f196ee34bb3",
+      "size": 29800,
+      "normalized_sha256": "410071c566185c7388113fb4bd0eec30e12a219d58da7454b84f3592812fac0e"
     },
     "afk_bot/infra/stats.py": {
       "role": "index",
@@ -178,9 +178,9 @@
     },
     "afk_gui.py": {
       "role": "index",
-      "sha256": "156509ad6b1f11d10de3440e950397ff027e771e65943f02ef3a32996bf8ff7f",
-      "size": 127377,
-      "normalized_sha256": "156509ad6b1f11d10de3440e950397ff027e771e65943f02ef3a32996bf8ff7f"
+      "sha256": "2ee98218fa7af37bf9224350550a244f447e56c4bf279881e357a78eb5217941",
+      "size": 132046,
+      "normalized_sha256": "2ee98218fa7af37bf9224350550a244f447e56c4bf279881e357a78eb5217941"
     },
     "afk_journey.ico": {
       "role": "index",
@@ -195,9 +195,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "e3e3e1695abbb1c43d898c06183352f53c162571ac5dbd3c195de67f421e1244",
-      "size": 34566,
-      "normalized_sha256": "e3e3e1695abbb1c43d898c06183352f53c162571ac5dbd3c195de67f421e1244"
+      "sha256": "af680a4c68b8037b81dd9fd2dad1313eca88fd9f9980ff9e4fcd9b44a14f0fd9",
+      "size": 35160,
+      "normalized_sha256": "af680a4c68b8037b81dd9fd2dad1313eca88fd9f9980ff9e4fcd9b44a14f0fd9"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -907,15 +907,15 @@
     },
     "tests/run_tests.py": {
       "role": "observe",
-      "sha256": "85c66c71a6ffc5fee982c8e625a6c0a9f3f2d3f026d0ed763c13936ed40888ad",
-      "size": 23993,
-      "normalized_sha256": "d6e0f8af95b5e75fda3c9e272908aaa3a2fdb54ec765fbc6d5af5f96b41dc9e8"
+      "sha256": "e87eabb4aa8ed76f8047a87a0cd2e0ed91bd1719bbf91af0b55c08d8695dd43e",
+      "size": 24173,
+      "normalized_sha256": "31f208ca97c9b98d16046a8d35af3c3a7c8ef997fd229dd5948be8418ae2b21c"
     },
     "tests/test_afk_limit_confirm.py": {
       "role": "observe",
-      "sha256": "865604655d85cac4b0f589feb842c64b938a6ff72010dfd5884c3fb92b577cf8",
-      "size": 13896,
-      "normalized_sha256": "60b19cbfbb32f98ba457405dbcee79f5c137075cca5f035e4c53864b0f77ffef"
+      "sha256": "049c1e13ef4c4697aefd2f57192210aca82f133c5353c3d0db335dfa7ebc7041",
+      "size": 14241,
+      "normalized_sha256": "5db283b37bc25f4a0f97f0dc2dc9dea6b5418c16483607af59c3748e85e35315"
     },
     "tests/test_arena_dryrun.py": {
       "role": "observe",
@@ -1180,6 +1180,12 @@
       "sha256": "4a69aa48d5f0e24574c60c088477a04309aea296cd4fe43db4b8d6b6ce09a8a6",
       "size": 7204,
       "normalized_sha256": "81ed494d4915a49bb3877860ddfe886ce8795847fbd8ec72e41103ac514ff4da"
+    },
+    "tests/test_log_modes.py": {
+      "role": "observe",
+      "sha256": "df41baef6b74060ac6331710e63e47bb7df249a83c9b6f8dfbcd7af8c80cfdbb",
+      "size": 6273,
+      "normalized_sha256": "df41baef6b74060ac6331710e63e47bb7df249a83c9b6f8dfbcd7af8c80cfdbb"
     },
     "tests/test_menu_nav_shortcut.py": {
       "role": "observe",
