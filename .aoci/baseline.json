@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-24T22:14:51Z",
+  "updated_at": "2026-11-24T22:44:18Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -88,9 +88,9 @@
     },
     "afk_bot/config.py": {
       "role": "index",
-      "sha256": "1a17e226816e02c14ad6e7d00a46fa250d38f636a08f702ee0cf025c1c85a847",
+      "sha256": "c784b7c24d910348bf27f854bac4547a63d207a048ab24fa5bd2f1b3cef6af83",
       "size": 7877,
-      "normalized_sha256": "1a17e226816e02c14ad6e7d00a46fa250d38f636a08f702ee0cf025c1c85a847"
+      "normalized_sha256": "c784b7c24d910348bf27f854bac4547a63d207a048ab24fa5bd2f1b3cef6af83"
     },
     "afk_bot/facade.py": {
       "role": "index",
@@ -112,9 +112,9 @@
     },
     "afk_bot/infra/input.py": {
       "role": "index",
-      "sha256": "2941239f87ec7a38a160155b76723572c4155e795a01d8531e27d9ab8be9a8bd",
-      "size": 30829,
-      "normalized_sha256": "d0d1b845b2ca1b98a4fe6018fbee4286e240edca52622b605970661e8e102e17"
+      "sha256": "b84fb953c0f1ee62f74e7ae10ae752780163c221ab7eff870593cefba9aad441",
+      "size": 33804,
+      "normalized_sha256": "484c39ef7f816fe684b1391f4ed3cb0fe5da61e68aba64a00396f3730ea407c0"
     },
     "afk_bot/infra/ocr_engine.py": {
       "role": "index",
@@ -130,9 +130,9 @@
     },
     "afk_bot/infra/screen.py": {
       "role": "index",
-      "sha256": "81320c275679b932c8ac01cb990f2261d97291816235810b081a6f9dfb234f1e",
-      "size": 27311,
-      "normalized_sha256": "6575f9eb328c3f187b98f0d724fa7707f9c324cf911846c53ccac5cf64421b43"
+      "sha256": "a72d51a40f1f6d3b2fe1bc820e613591ee114658311dd376f38134ae3b131ba3",
+      "size": 28125,
+      "normalized_sha256": "6160c54932ea74e41cd44cccd2f92caa64ff2288342c7b5a1589a33a65f96ff3"
     },
     "afk_bot/infra/stats.py": {
       "role": "index",
@@ -189,9 +189,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "004460ce60f234cda0861b5d951be7dc13fa65c5990543b6fc9b04c7ae69c551",
-      "size": 31464,
-      "normalized_sha256": "004460ce60f234cda0861b5d951be7dc13fa65c5990543b6fc9b04c7ae69c551"
+      "sha256": "791ff094bae1b0813080380e9c6effebe82812e676314159ff0ef06db05c746f",
+      "size": 32528,
+      "normalized_sha256": "791ff094bae1b0813080380e9c6effebe82812e676314159ff0ef06db05c746f"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -216,6 +216,12 @@
       "sha256": "41c7e6eb757ba0e7218b4fee0afe5ea78f6313e62c15741de8dd72f228d8f126",
       "size": 7010,
       "normalized_sha256": "b6d163253c5fa7308982edb2cad2edaab91b1741af31e083fbf03ccc106b4afe"
+    },
+    "docs/MaaFramework-学习与迁移计划.md": {
+      "role": "index",
+      "sha256": "408af545f531a0eb02647d983ab4efa848612260b21e3f673fb1bbd42f1190d1",
+      "size": 5285,
+      "normalized_sha256": "408af545f531a0eb02647d983ab4efa848612260b21e3f673fb1bbd42f1190d1"
     },
     "docs/history/overview_v1.5.6.md": {
       "role": "index",
@@ -889,9 +895,9 @@
     },
     "tests/run_tests.py": {
       "role": "observe",
-      "sha256": "84d70f425a42239ac8f8777bf2ba342232eaca547b92c897e356e1246dfa0148",
-      "size": 22874,
-      "normalized_sha256": "b19bca3c9dd74be7eb8dd1888249bf5be957b45ff5e428d587913eda371da289"
+      "sha256": "9596729806357b2fcf97cbf240251e31f0d9b8ee3dbd6caeb756db7e5f510488",
+      "size": 23404,
+      "normalized_sha256": "22e2c37ab29998fc2502707d775949637ee203d6bf3884aac1dc15a10b7cf08f"
     },
     "tests/test_afk_limit_confirm.py": {
       "role": "observe",
@@ -1096,6 +1102,12 @@
       "sha256": "3714ce0ced9853277966634b3755ea5c2ce050747b9170e103f9217105b8b3ab",
       "size": 7545,
       "normalized_sha256": "be01e57009b80415feb79678bc4920ba5d4c49ceab500b9ab431b8bdeb5a6133"
+    },
+    "tests/test_infra_speedup.py": {
+      "role": "observe",
+      "sha256": "23d8eba551217e3db78ed9a250d01b473662bcb89f769a0b2f5713c164e22e9d",
+      "size": 7430,
+      "normalized_sha256": "23d8eba551217e3db78ed9a250d01b473662bcb89f769a0b2f5713c164e22e9d"
     },
     "tests/test_labyrinth_full_round_dryrun.py": {
       "role": "observe",

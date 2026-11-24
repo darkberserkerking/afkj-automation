@@ -18,7 +18,7 @@ app_paths.py[CC8S]: F:运行期数据目录唯一真相源：解析日志/配置
 ===/<repository>/afk_bot/===
 __init__.py[CG8T]: F:包入口：导出三层子模块并施加全局 pyautogui 设置 | R:code:afk_bot/facade.py,code:task_registry.py | A:__all__,VERSION,default_config | S:必须 import task_registry 与 tasks 触发任务注册副作用，漏掉则任务列表为空；FAILSAFE=False 全局关闭
 bug_report.py[IO7L]: F:Bug 上报：截图+日志+环境先落盘到数据目录，再以 REST 推分支并建 Issue（v2.4.14 合并进 afkj-automation） | R:code:afk_bot/updater.py,code:app_paths.py | A:collect,upload,report,retry_pending,reports_dir,_push_report_via_api | S:PrintWindow 全黑须 ImageGrab 按窗裁剪；上传先 REST（blob→tree→commit→ref）失败才回退本机 git，因 git 需本机仓库与凭据；afkj-automation 为公开库，报告对外可见
-config.py[CC8S]: F:全局常量：版本号（现 v2.4.21，spec 构建期自动读取）、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json,code:app_paths.py | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点提示文字本身绝不点购买键；afkj_config.json 查找顺序 数据目录→旧 exe 目录→仓库根；BOX_OPEN_KWS（全部开启）刻意不进 POPUP_EXIT_KWS——后者被多任务共用，全局生效会在商店/背包误点耗资源；VERSION 必须保持单行 VERSION: str = 'vX.Y.Z' 写法，spec 的正则按此格式解析，改写法（加注解/换引号）会让 exe 名静默退化为 v0.0.0
+config.py[CC8S]: F:全局常量：版本号（现 v2.4.22，spec 构建期自动读取）、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json,code:app_paths.py | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点提示文字本身绝不点购买键；afkj_config.json 查找顺序 数据目录→旧 exe 目录→仓库根；BOX_OPEN_KWS（全部开启）刻意不进 POPUP_EXIT_KWS——后者被多任务共用，全局生效会在商店/背包误点耗资源；VERSION 必须保持单行 VERSION: str = 'vX.Y.Z' 写法，spec 的正则按此格式解析，改写法（加注解/换引号）会让 exe 名静默退化为 v0.0.0
 facade.py[CG8L]: F:跨层门面 AFKBot，委托 AFKBotCore 并保持旧 API 完全兼容 | R:code:afk_bot/auto_farm/loop.py | A:AFKBot.run,run_auto_farm,click_ratio,template_match | S:本层只做委托不得加业务逻辑；GUI 与 tasks 依赖其旧方法签名，改名即破坏兼容
 updater.py[IV8L]: F:自动更新：打包模式查 Release/下载 exe 并生成 bat 替换重启，源码模式走 git pull | R:code:afk_bot/config.py,code:afk_gui.py | A:check_latest,download_asset,launch_updater,build_updater_script,check_source,git_pull | S:运行中的 exe 无法自我覆盖，必须由 .bat 等进程退出后替换；零第三方依赖只用 urllib；SSL 需 Windows 容忍回退与本地代理探测，否则 HTTPS 报 ASN1 NOT_ENOUGH_DATA；401/403 须在同一 opener 去掉 Authorization 匿名重试（fail-open），只有匿名也失败才报 Token 无效；替换 .bat 的命令与注释行必须纯 ASCII——cmd 在 chcp 65001 后仍按启动时代码页解析，rem 里的中文会断行并把词当命令执行（真机黑窗报「不是内部或外部命令」），仅 set NEW/OLD 的路径值可含中文；launch_updater 在非 frozen 且未显式传 old_exe 时直接拒绝，因源码模式 current_exe() 取 sys.argv[0]（afk_gui.py），误调会用新 exe 覆盖源码；替换脚本必须等子进程 PID 与 onefile 父 bootloader 双双退出，并对 copy 重试最多 60 次——父进程删 _MEI 期间仍映射 exe，单次 copy 必报「文件被占用」（真机 v2.4.11→v2.4.17 实测）；脚本内延时只能用 ping -n，timeout /t 在 stdin 重定向时立即返回且 PATH 上 GNU coreutils 会抢占
 
@@ -31,10 +31,10 @@ loop.py[AB9L]: F:推图主循环编排：导航-阵容-战斗-结算状态机与
 ===/<repository>/afk_bot/infra/===
 __init__.py[CG4T]: F:infra 层包说明：任一任务启动前必须就绪的公共地基 | R:- | A:- | S:-
 coordinate.py[CD8S]: F:坐标换算唯一入口：图像、屏幕、比例坐标互转 | R:code:afk_bot/infra/screen.py | A:image_to_screen,ratio_to_image,refresh,client_offset | S:image_to_screen 是唯一通往屏幕坐标的路径；ClientToScreen 偏移被缓存，窗口移动或缩放后必须 refresh 才准确
-input.py[CH8L]: F:输入注入：点击、拖拽、滚轮、按键与模板匹配 | R:code:afk_bot/infra/coordinate.py,code:afk_bot/infra/screen.py | A:click_at,click_ratio,click_ratio_dual,template_match,press_esc | S:透明背景模板不能用 TM_CCOEFF_NORMED（不收 mask），须走 _masked_ccoeff_map；裸模板名必须经 _resolve_tpl_path 兜底到 templates，否则 exe 在桌面时 FileNotFoundError
+input.py[CH8L]: F:输入注入：点击、拖拽、滚轮、按键与模板匹配 | R:code:afk_bot/infra/coordinate.py,code:afk_bot/infra/screen.py | A:click_at,click_ratio,click_ratio_dual,template_match,_load_tpl_cached | S:透明背景模板不能用 TM_CCOEFF_NORMED（不收 mask），须走 _masked_ccoeff_map；裸模板名必须经 _resolve_tpl_path 兜底到 templates；模板解码走 _load_tpl_cached 缓存（键含路径+mtime_ns+size，返回的 ndarray 只读禁改）；多尺度改两段式后，快扫（0.9~1.1）必须 ≥max(threshold,0.75) 才允许短路，否则回落全范围——低分伪匹配短路会漏掉全范围的真匹配，比不改更糟；全屏 16 尺度实测 3074ms，快路径 533ms，未命中场景多花 12%
 ocr_engine.py[MA8M]: F:OCR 文本查找：NFKC 归一化、精确/模糊/排除查找与带记忆查找 | R:code:afk_bot/infra/screen.py,code:afk_bot/infra/ocr_memory.py | A:find_text,find_text_exact,find_text_exclude,find_with_memory | S:比较前必须做 NFKC 归一化，否则全角与异体字会导致漏匹配；底层 OCR 一律走 ScreenCapture，勿在此直连引擎
 ocr_memory.py[MP7M]: F:OCR 策略记忆：按场景与关键词记录最优识别策略并持久化 | R:code:afk_bot/infra/ocr_engine.py | A:remember,get_strategy,get_attempt_order,find_text_with_memory | S:策略库落盘 ocr_memory.json 属本机状态（已 gitignore），删除只降低命中率、不影响正确性
-screen.py[CO9L]: F:窗口定位、截图与全屏 OCR（带指纹缓存） | R:code:afk_bot/infra/coordinate.py | A:find_and_focus,snap,ocr_screen,frame_fingerprint,debug_screenshot | S:snap 返回 (图,client_l,client_t,w,h) 的顺序被全项目依赖；OCR 缓存用 20 采样点指纹 + 60s TTL，采样点减少会让弹窗变化复用旧结果
+screen.py[CO9L]: F:窗口定位、截图与 OCR（支持全屏或 ROI，带指纹缓存） | R:code:afk_bot/infra/coordinate.py | A:find_and_focus,snap,ocr_screen,frame_fingerprint,debug_screenshot | S:snap 返回 (图,client_l,client_t,w,h) 的顺序被全项目依赖；OCR 缓存键必须是 **(10 采样点指纹, roi) 二元组**——指纹按整图采样，同帧不同 roi 指纹相同，只按指纹做键会把 A 区结果当 B 区返回（静默错数据）；TTL 60s，采样点减少会让弹窗变化复用旧结果；ocr_screen 的 roi 为相对截图左上角的绝对像素，透传 MaaOCR.recognize，**返回坐标已还原到整图**，调用方无需再加偏移；实测全屏 1280x1024 为 1501ms、ROI 400x300 为 597ms
 stats.py[CO5S]: F:战斗统计：胜场、耗时与关卡进度并推送 GUI | R:code:afk_gui.py | A:push,record_battle_result,increment,get | S:push 的关卡推进带去重，重复推送会让 GUI 进度回退；字典读写在锁内完成
 timing.py[RR7T]: F:分段可中断休眠，停止信号最坏延迟约 0.1s | R:code:afk_bot/auto_farm/battle.py | A:sleep_interruptible,SLEEP_STEP | S:引擎层禁止再写裸 time.sleep（会绕过停止信号）；未传 should_stop 时退化为普通休眠，不具备中断能力
 
@@ -62,6 +62,7 @@ v1.8.49_审查报告.md[SG4S]: F:v1.8.49 规范沉淀、审查问题清单与变
 目录结构说明.md[SG5S]: F:项目目录结构的整理记录（v2.2.0）与各目录职责 | R:code:afk_bot/__init__.py | A:- | S:-
 规范总览.md[SG7S]: F:规范总览：架构、日志、命名与界面判据的汇聚，每条标注来源 | R:code:docs/开发指导手册.md | A:- | S:每条规范后必须保留来源标注（手册/记忆/代码事实/截图），无来源的判断不得升为规范
 静态扫描_F821_报告.md[SG4S]: F:全库 F821 未定义名静态扫描报告，针对 py_compile 查不出的运行时地雷 | R:code:afk_gui.py | A:- | S:py_compile 与 Mock 干跑查不出 f-string 里写错变量名，改日志文案后须跑一次静态扫描
+MaaFramework-学习与迁移计划.md[SZ3T]: F:dev 分支「对齐 MaaFramework」三阶段路线图：阶段 1 基础设施提速、阶段 2 判定模型重构、阶段 3 引擎引入（待决策） | R:- | A:- | S:对方为 AGPL-3.0；阶段 1/2 不引入其代码无需改证；复制代码或作依赖分发须整体转 AGPL
 
 ===/<repository>/docs/history/===
 overview_v1.5.6.md[SG3T]: F:v1.5.6 交付报告：品牌重命名与三层架构重构 | R:code:AFKJ自动化工具.spec | A:- | S:-
