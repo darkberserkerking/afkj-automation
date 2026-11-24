@@ -54,6 +54,7 @@ SUITES = {
     'tests/test_res_path.py': ({1, 2, 3}, False),
     'tests/test_chest_region.py': ({1, 2, 3}, False),
     'tests/test_switch_btn_region.py': ({1, 2, 3}, False),
+    'tests/test_switch_btn_match.py': ({1, 2, 3}, False),   # v2.4.20 真实算法端到端（合成三布局）
     'tests/test_updater_net_retry.py': ({1, 2, 3}, False),
     'tests/test_data_dir.py': ({1, 2, 3}, False),               # v2.4.12 数据目录与旧文件迁移
     'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
@@ -217,7 +218,8 @@ CHANGE_MAP = [
                             'tests/test_update_flow.py',
                             'tests/test_updater_lock_retry.py']),
     # v2.3.47 > 按钮搜索区域（竖屏放宽）
-    ('afk_bot/auto_farm/formation.py', ['tests/test_switch_btn_region.py']),
+    ('afk_bot/auto_farm/formation.py', ['tests/test_switch_btn_region.py',
+                                        'tests/test_switch_btn_match.py']),
     # v2.3.46 挂机宝箱/沙漏区域（横竖屏归一）
     ('tasks/auto_farm.py', ['tests/test_chest_region.py',
                             'tests/test_auto_farm_stop_residue.py']),
