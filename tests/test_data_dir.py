@@ -169,7 +169,7 @@ else:
 
 # ── ⑥ 版本号与 spec 同步 ─────────────────────────────────────
 from afk_bot import config as _cfg   # noqa: E402
-check('6a config.VERSION = v2.4.13', _cfg.VERSION == 'v2.4.13', _cfg.VERSION)
+check('6a config.VERSION = v2.4.14', _cfg.VERSION == 'v2.4.14', _cfg.VERSION)
 spec = open(os.path.join(ROOT, 'AFKJ自动化工具.spec'), encoding='utf-8').read()
 check('6b spec 名称含同一版本号', f'AFKJ自动化工具{_cfg.VERSION}' in spec)
 

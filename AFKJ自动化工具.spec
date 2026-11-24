@@ -9,6 +9,17 @@ try:
 except Exception:
     _CERTIFI_CA = None
 
+# v2.4.14：构建期内置的上报 token（afk_bot/_report_token.py，已 gitignore）。
+# 该文件只在本地存在时才打进 exe —— 它让「其他用户」无需任何配置即可上报
+# Bug；不存在就跳过，行为与旧版一致（只落本地）。绝不能进版本库。
+_EXTRA_HIDDEN = []
+try:
+    _SPEC_DIR = SPECPATH  # noqa: F821  PyInstaller 注入
+except Exception:
+    _SPEC_DIR = os.getcwd()
+if os.path.isfile(os.path.join(_SPEC_DIR, 'afk_bot', '_report_token.py')):
+    _EXTRA_HIDDEN.append('afk_bot._report_token')
+
 _a = Analysis(
     ['afk_gui.py'],
     pathex=[],
@@ -47,6 +58,7 @@ _a = Analysis(
         'shapely',
         'cv2',
         'numpy',
+        *_EXTRA_HIDDEN,          # v2.4.14 构建期内置上报 token（可选）
 
         # afk_bot ① 默认开启层（infra）
         'afk_bot',
@@ -101,7 +113,7 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动化工具v2.4.13',
+    name='AFKJ自动化工具v2.4.14',
     icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,

@@ -37,14 +37,21 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# 代码仓库（只用于读取 version 等；**不放 Bug 报告**）
+# 代码仓库
 REPO = 'darkberserkerking/afkj-automation'
-# ── Bug 报告仓库（v2.3.12）──────────────────────────────────────
-# 用户要求「仅本人可见」→ 公开仓库的 Issue/分支任何人可见 ✗
-# 唯一可靠做法：**私有仓库**（GitHub 私有仓库的 Issue 只有本人可见 ✓）
-# ⚠️ 需用户手动创建一次（token 无建仓权限 ✗）：
-#    GitHub → New repository → 名称 afkj-bug-reports → 勾选 **Private** → 不勾 README
-BUG_REPORT_REPO = 'darkberserkerking/afkj-bug-reports'
+# ── Bug 报告落点（v2.4.14 合并）────────────────────────────────
+# 历史：v2.3.12 起报告另存私有仓库 `afkj-bug-reports`（当时要求「仅本人
+# 可见」→ 公开仓库的 Issue/分支谁都能看 ✗）。
+# 用户 2026-11-24 定案：**弃用 afkj-bug-reports，报告直接进 afkj-automation**
+# —— 单一仓库、issue 与代码同处，便于按版本对照排查。
+# 落盘结构（与旧方案一致，避免改动 REPORT/Issue 里的图片直链）：
+#   分支 `bug-reports` → `bug-reports/<时间戳>/{shot.png,app.log,meta.json,REPORT.md}`
+#   Issue 建在同一仓库，label `auto-bug`
+# ⚠️ afkj-automation 是**公开**仓库 → 报告内容（含截图与日志）对外可见。
+#    这是「其他用户也能上传」的前提代价，已与用户确认。
+REPORT_REPO = REPO
+# 兼容旧名：仓内其它位置（含测试）可能仍引用 BUG_REPORT_REPO
+BUG_REPORT_REPO = REPORT_REPO
 # 隐藏子进程控制台窗口（pythonw 下每次 subprocess 都会闪一个黑窗 ✗）
 _NO_WINDOW = 0x08000000 if sys.platform.startswith('win') else 0
 
@@ -466,10 +473,17 @@ def _token_from_git() -> Optional[str]:
 
 
 def _token() -> Optional[str]:
-    """取上传用 token，优先级：环境变量 → git 凭据 → github_token.txt。
+    """取上传用 token，优先级：环境变量 → git 凭据 → github_token.txt
+    → **构建期内置 token**（v2.4.14）。
 
     ⚠️ git 凭据在前：它一定是**能写**的（否则推送不会成功 ✓），
     而 github_token.txt 里的 fine-grained PAT 可能缺 Contents 写 ✗
+
+    内置兜底的意义：**其他用户**的电脑上没有环境变量、没有 git 凭据、
+    也没有 github_token.txt，前三级全部落空 → 报告只能躺本地。要让
+    「别人跑出错也能上报」，就必须随包带一个只够「写 issue + 写
+    bug-reports 分支」的最小权限 token（`afk_bot/_report_token.py`，
+    该文件已 gitignore，不会被提交或泄漏到仓库里）。
     """
     env = (os.environ.get('AFKJ_GH_TOKEN') or '').strip()
     if env:
@@ -479,9 +493,19 @@ def _token() -> Optional[str]:
         return t
     try:
         from afk_bot.updater import resolve_token
-        return resolve_token()
+        got = resolve_token()
+        if got:
+            return got
     except Exception:
-        return None
+        pass
+    try:
+        from afk_bot._report_token import REPORT_TOKEN as _emb
+        _emb = (_emb or '').strip()
+        if _emb:
+            return _emb
+    except Exception:
+        pass
+    return None
 
 
 def _api(method: str, url: str, token: str, data=None) -> dict:
@@ -498,14 +522,16 @@ def _api(method: str, url: str, token: str, data=None) -> dict:
 
 
 def _report_repo_ok(token: str) -> bool:
-    """校验报告仓库存在且**为私有**（可见性控制的核心 ✓）。
+    """确认报告仓库可访问（v2.4.14：不再要求私有）。
 
-    用户要求「仅本人可见」→ 公开仓库一律拒绝上传 ✗
-    （私有仓库的 Issue / 分支只有仓库所有者可见 ✓）
+    历史：旧方案要求 `private == True`（报告只给本人看），报告一合并进
+    afkj-automation 这个公开仓库，这个前置判断就成了**永久阻塞** ——
+    真机 2026-11-24 的两份报告正是被它卡在本地、只留下 `.pending` 标记。
+    现在只校验「仓库存在且 token 能读」，其它照旧。
     """
     try:
-        d = _api('GET', f'https://api.github.com/repos/{BUG_REPORT_REPO}', token)
-        return bool(d.get('private'))
+        d = _api('GET', f'https://api.github.com/repos/{REPORT_REPO}', token)
+        return bool(d.get('full_name'))
     except Exception:
         return False
 
@@ -547,18 +573,127 @@ def _create_issue(tok: str, folder: Path) -> Optional[str]:
                 encoding='utf-8', errors='ignore')
         except Exception:
             pass
-        img = (f'https://github.com/{BUG_REPORT_REPO}/raw/{BRANCH}/'
+        img = (f'https://github.com/{REPORT_REPO}/raw/{BRANCH}/'
                f'bug-reports/{folder.name}/shot.png')
         body = _issue_body(meta, log_txt, img)
         title = (f"[自动上报] {meta.get('task') or '未知任务'} · "
                  f"{meta.get('version') or '?'} · {folder.name}")
         issue = _api('POST',
-                     f'https://api.github.com/repos/{BUG_REPORT_REPO}/issues',
+                     f'https://api.github.com/repos/{REPORT_REPO}/issues',
                      tok, {'title': title[:200], 'body': body,
                            'labels': ['auto-bug']})
         return issue.get('html_url')
     except Exception:
         return None
+
+
+def _push_report_via_api(folder: Path, token: str) -> bool:
+    """用 **GitHub REST API** 把报告提交到 `bug-reports` 分支（v2.4.14）。
+
+    为什么新增这条通道：旧的 `_push_report_via_git` 依赖三件「只有开发机
+    才具备」的东西 —— 本机装了 git、`cwd` 是一个 git 工作区、且 git
+    credential 里存着可用凭据。**其他用户的电脑三者皆无**，所以报告
+    永远传不上去（这也正是用户要求「确保其他用户也能上传」的原因）。
+
+    REST 通道只用 HTTPS + token，零外部依赖、零本地仓库：
+      POST /git/blobs   （每个文件，base64）
+      POST /git/trees   （base_tree = 分支当前树，仅追加本目录）
+      POST /git/commits
+      PATCH/POST /git/refs/heads/bug-reports
+
+    失败**不抛**：返回 False 交由调用方回退到 git 通道。
+    """
+    import base64
+
+    files: List[Tuple[str, Path]] = []
+    for name in ('shot.png', 'app.log', 'meta.json', 'REPORT.md'):
+        f = folder / name
+        try:
+            if f.is_file() and f.stat().st_size <= 20 * 1024 * 1024:
+                files.append((name, f))
+        except Exception:
+            pass
+    if not files:
+        return False
+
+    base = f'/repos/{REPORT_REPO}'
+    sub = f'bug-reports/{folder.name}'
+
+    # ① 分支基点：优先已有 bug-reports 分支，否则从默认分支拉
+    base_sha = ''
+    base_tree = ''
+    try:
+        ref = _api('GET', f'https://api.github.com{base}/git/ref/heads/{BRANCH}',
+                   token)
+        base_sha = ((ref.get('object') or {}).get('sha') or '')
+    except Exception:
+        base_sha = ''
+    try:
+        if base_sha:
+            c = _api('GET', f'https://api.github.com{base}/git/commits/{base_sha}',
+                     token)
+            base_tree = ((c.get('tree') or {}).get('sha') or '')
+        elif not base_sha:
+            # 分支还不存在 → 从默认分支 HEAD 起步（不建孤儿提交，
+            # 首个报告提交会带上整棵树，但历史只有一条，且不影响 main）
+            d = _api('GET', f'https://api.github.com{base}', token)
+            db = d.get('default_branch') or 'main'
+            ref = _api('GET',
+                       f'https://api.github.com{base}/git/ref/heads/{db}', token)
+            base_sha = ((ref.get('object') or {}).get('sha') or '')
+            if base_sha:
+                c = _api('GET',
+                         f'https://api.github.com{base}/git/commits/{base_sha}',
+                         token)
+                base_tree = ((c.get('tree') or {}).get('sha') or '')
+    except Exception:
+        return False
+    if not base_sha:
+        return False
+
+    # ② 逐个文件建 blob
+    entries: List[dict] = []
+    for name, f in files:
+        try:
+            content = base64.b64encode(f.read_bytes()).decode('ascii')
+            blob = _api('POST', f'https://api.github.com{base}/git/blobs', token,
+                        {'content': content, 'encoding': 'base64'})
+            sha = blob.get('sha') or ''
+            if sha:
+                entries.append({'path': f'{sub}/{name}', 'mode': '100644',
+                                'type': 'blob', 'sha': sha})
+        except Exception:
+            continue
+    if not entries:
+        return False
+
+    # ③ 树 → 提交 → 移动分支引用
+    try:
+        tree_payload: dict = {'tree': entries}
+        if base_tree:
+            tree_payload['base_tree'] = base_tree
+        tree = _api('POST', f'https://api.github.com{base}/git/trees', token,
+                    tree_payload)
+        tree_sha = tree.get('sha') or ''
+        if not tree_sha:
+            return False
+        commit = _api('POST', f'https://api.github.com{base}/git/commits', token,
+                      {'message': f'bug-report: {folder.name}',
+                       'tree': tree_sha, 'parents': [base_sha]})
+        commit_sha = commit.get('sha') or ''
+        if not commit_sha:
+            return False
+        try:
+            _api('PATCH',
+                 f'https://api.github.com{base}/git/refs/heads/{BRANCH}', token,
+                 {'sha': commit_sha, 'force': False})
+        except Exception:
+            # 分支不存在 → 新建
+            _api('POST', f'https://api.github.com{base}/git/refs', token,
+                 {'ref': f'refs/heads/{BRANCH}', 'sha': commit_sha})
+        return True
+    except Exception:
+        return False
 
 
 def _push_report_via_git(folder: Path) -> bool:
@@ -573,7 +708,7 @@ def _push_report_via_git(folder: Path) -> bool:
     root = _root()
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     # 报告仓库的 https 地址（私有仓库；凭据沿用用户已存的 git credential ✓）
-    remote = f'https://github.com/{BUG_REPORT_REPO}.git'
+    remote = f'https://github.com/{REPORT_REPO}.git'
     nowin = _no_console_kwargs()          # **不弹控制台窗口** ✓
 
     def g(*a, _env=None):
@@ -658,18 +793,26 @@ def upload(folder: Path, retries: int = 3) -> Optional[str]:
         _mark(folder, '.pending', 'no-token')
         return None
     if not _report_repo_ok(tok):
-        _mark(folder, '.pending', 'report-repo-missing-or-not-private')
+        _mark(folder, '.pending', 'report-repo-unreachable')
         return None
 
     last = ''
     for attempt in range(1, max(1, retries) + 1):
         try:
-            if _push_report_via_git(folder):
+            # v2.4.14：先走 REST（任何机器都能用），失败再回退本机 git。
+            # 回退顺序不能反——git 通道依赖本机 git + 工作区 + credential，
+            # 其他用户的机器上三者都没有，会一直失败到重试耗尽。
+            pushed = _push_report_via_api(folder, tok)
+            how = 'api'
+            if not pushed:
+                pushed = _push_report_via_git(folder)
+                how = 'git'
+            if pushed:
                 url = _create_issue(tok, folder)
-                _mark(folder, '.uploaded', url or 'pushed-no-issue')
+                _mark(folder, '.uploaded', url or f'pushed-{how}-no-issue')
                 _unmark(folder, '.pending')
                 return url
-            raise RuntimeError('git push 未成功')
+            raise RuntimeError('rest 与 git 两条通道均未成功')
         except Exception as e:
             last = f'{type(e).__name__}: {e}'
             if attempt < retries:

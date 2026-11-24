@@ -152,21 +152,26 @@ f3, u3 = BR.report(task='unit-report', do_upload=False)
 check('5a report 返回目录', f3.is_dir(), str(f3))
 check('5b do_upload=False → 不上传', u3 is None)
 
-print('\n── ⑥ 可见性（仅本人）+ 不闪命令行窗口（v2.3.12）──')
+print('\n── ⑥ 报告落点合并到代码仓库（v2.4.14）+ 不闪命令行窗口 ──')
 import re as _re  # noqa: E402
 _src = open(os.path.join(ROOT, 'afk_bot', 'bug_report.py'),
             encoding='utf-8').read()
-check('6a 报告走**独立私有仓库**（不在公开仓库建 Issue ✗）',
-      'BUG_REPORT_REPO' in _src
-      and 'afkj-bug-reports' in _src,
-      BR.BUG_REPORT_REPO)
-check('6b 上传前做**私有性校验**（公开仓库一律拒绝 ✗）',
-      '_report_repo_ok' in _src
-      and "if not _report_repo_ok(tok):" in _src)
-check('6c Issue 建在报告仓库，而非代码仓库',
-      'repos/{BUG_REPORT_REPO}/issues' in _src)
-check('6d 图片直链指向报告仓库',
-      'github.com/{BUG_REPORT_REPO}/raw/' in _src)
+check('6a 报告目标仓库 = 代码仓库本身（弃用 afkj-bug-reports）',
+      BR.REPORT_REPO == 'darkberserkerking/afkj-automation'
+      and 'afkj-bug-reports' not in BR.REPORT_REPO,
+      BR.REPORT_REPO)
+check('6b 不再要求仓库私有（公开仓库不再被拒）',
+      'report-repo-missing-or-not-private' not in _src
+      and 'bool(d.get(\'private\'))' not in _src)
+check('6c Issue 建在 REPORT_REPO',
+      'repos/{REPORT_REPO}/issues' in _src)
+check('6d 图片直链指向 REPORT_REPO',
+      'github.com/{REPORT_REPO}/raw/' in _src)
+check('6e 存在 REST 上传通道（不依赖本机 git/凭据，其他用户可用）',
+      'def _push_report_via_api' in _src
+      and '_push_report_via_api(folder, tok)' in _src)
+check('6f 内置 token 兜底（随包分发，其他用户免配置）',
+      '_report_token' in _src)
 
 # 所有 subprocess 调用必须静默（否则 pythonw 下会闪黑窗 ✗）
 _blocks = _re.findall(r'subprocess\.(?:run|Popen)\((?:[^()]|\([^()]*\))*\)',

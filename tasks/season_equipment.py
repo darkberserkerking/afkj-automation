@@ -77,6 +77,7 @@ from typing import List, Optional, Tuple
 from task_registry import TaskRegistry, TaskMeta
 from tasks.base import BaseTask
 from tasks.screen_registry import GLOBAL_SCREEN_REGISTRY
+from afk_bot.config import BOX_OPEN_KWS
 
 task_id = "season_equipment"
 label = "更新装备"
@@ -134,6 +135,9 @@ _ONEKEY_STREAK_MAX: int = 5    # 按钮常驻时，几帧后按完成继续切�
 _W_SUCCESS = ('锻造成功', '穿戴新装备')
 _W_ENTRY = '赛季装备'
 _W_HERO_HALL = '英雄厅堂'
+# v2.4.14：随机箱弹窗靠点「全部开启」关掉。判据单一真相源在
+# afk_bot.config.BOX_OPEN_KWS，任务内不得再写一份字面量。
+_W_BOX_OPEN = BOX_OPEN_KWS[0]
 _W_FORGE = '锻造'
 _W_WEAR = '穿戴新装备'
 
@@ -228,6 +232,33 @@ class SeasonEquipmentTask(BaseTask):
             return 'failed'
         return self._forge_loop()
 
+    def _dismiss_box_popup(self, items: List[Tuple] = None) -> bool:
+        """关「开启装备随机箱」全屏弹窗（v2.4.14）。
+
+        真机 2026-11-24 00:54 现场：进入英雄厅堂立刻弹「开启装备随机箱」，
+        米色卷轴全屏覆盖，底部导航栏 100% 不可见；弹窗内**没有**任何
+        「点击空白处/点击屏幕退出」提示语，只有中央绿色「全部开启」按钮，
+        于是 BaseTask.dismiss_blink_popup 连一帧都命中不了（日志实录
+        「本次已清理弹窗 0 次」），最后误判「未找到赛季装备入口」中止。
+
+        用户定案：直接点「全部开启」（把箱子开掉继续锻造）。
+
+        Args:
+            items: 当帧 OCR；None 时自行取一帧（no_cache，遵守铁律）
+
+        Returns:
+            bool: 命中并点击返回 True；未命中零副作用返回 False
+        """
+        if items is None:
+            items = self.bot._ocr_screen(no_cache=True)
+        pos = self._find_text_exact(items, _W_BOX_OPEN)
+        if not pos:
+            return False
+        self.log(f"[点击] 随机箱弹窗「{_W_BOX_OPEN}」 | 图像={pos}")
+        self.bot.click_at(pos[0], pos[1], '随机箱_全部开启')
+        self._sleep(1.2)
+        return True
+
     def _goto_entry(self) -> bool:
         """自动导航：已在英雄厅堂则直达；否则回 1 层 → 英雄厅堂 → 赛季装备。
 
@@ -240,7 +271,10 @@ class SeasonEquipmentTask(BaseTask):
         first = self.bot._ocr_screen(no_cache=True)
         # 导航前先清弹窗；命中后不沿用被遮挡的旧帧，强制走导航，
         # 由下面循环重新 OCR 识别真实界面（不新增取帧，守住 no_cache 铁律）
-        popup_at_start = self.dismiss_blink_popup(first)
+        # v2.4.14：随机箱弹窗要在 blink 之前单独处理——它没有「点击空白处」
+        # 类提示语，混在一起必然被 dismiss_blink_popup 漏掉（实测 0 次命中）。
+        box_at_start = self._dismiss_box_popup(first)
+        popup_at_start = box_at_start or self.dismiss_blink_popup(first)
         first_blob = '' if popup_at_start else ' '.join(self._texts(first, 0.6))
         need_nav = popup_at_start or not (
             _W_HERO_HALL in first_blob and _W_ENTRY in first_blob)
@@ -260,7 +294,8 @@ class SeasonEquipmentTask(BaseTask):
                 return False
             items = self.bot._ocr_screen(no_cache=True)
             # 弹窗优先：命中即点掉并重新取帧，不计入「找入口」次数
-            if self.dismiss_blink_popup(items):
+            # v2.4.14：随机箱弹窗（点「全部开启」）排在 blink 弹窗之前
+            if self._dismiss_box_popup(items) or self.dismiss_blink_popup(items):
                 popups += 1
                 self._sleep(0.8)
                 continue
@@ -471,7 +506,7 @@ class SeasonEquipmentTask(BaseTask):
                     self.log(f"[信息] 切换职业 → {nxt}")
                     self._sleep(_LOOP_SLEEP)
                     continue
-                self.log(f"[错误] 切换职业「{nxt}」失败（模板未命中）")
+                self.log(f"[错误] 切换职业「{nxt}」失败，任务中止")
                 return 'failed'
 
             # ④ 赛季职业装备主界面 → 点圆形图标进入第一个待办职业
@@ -526,11 +561,16 @@ class SeasonEquipmentTask(BaseTask):
                     self.log(f"[信息] 切换职业 → {nxt}")
                     self._sleep(_LOOP_SLEEP)
                     continue
-                self.log(f"[错误] 切换职业「{nxt}」失败（模板未命中）")
+                self.log(f"[错误] 切换职业「{nxt}」失败，任务中止")
                 return 'failed'
 
             # ⑦ 未知 / 动画过渡
             else:
+                # v2.4.14：随机箱弹窗在切职业（重新进英雄厅堂）后也会冒出来，
+                # 不在这里清掉会一路 stall 到耗时护栏失败。
+                if self._dismiss_box_popup(items):
+                    stall = 0
+                    continue
                 stall += 1
 
             if stall == 1 or stall % 5 == 0:
@@ -621,14 +661,30 @@ class SeasonEquipmentTask(BaseTask):
         return None
 
     def _switch_class(self, zh: str) -> bool:
-        """底部 tab 切职业（纯图标无文字）→ 模板 + _click_abs。"""
+        """底部 tab 切职业（纯图标无文字）→ 模板 + _click_abs。
+
+        v2.4.14：未命中不再静默重试，改为**明确提示遮挡并停止**。
+        依据（2026-11-24 01:12 真机同帧实测）：六个模板里五个 ≥0.92
+        （辅助 .998 / 法师 .998 / 战士 .976 / 射手 .928 / 坦克 .966），
+        只有「游侠」.513 —— 因为它的 tab 在底栏最右（x≈1015），
+        被 Windows 输入法悬浮条（中/🌙/简/☺/⚙）压住了大半。
+        这属于**运行环境遮挡**，不是坐标/阈值问题，重试只会空转，
+        故直接给出可操作指引并中止（用户 2026-11-24 定案）。
+        """
         pos = self._match_class(zh, main=False)
-        if not pos:
-            self.log(f"[警告] 职业 tab 模板未命中：{zh}"
-                     "（检索范围=底部 tab 区+全屏；未匹配原因=图标未出现）")
-            return False
-        self.bot._click_abs(pos[0], pos[1])
-        return True
+        if pos:
+            self.bot._click_abs(pos[0], pos[1])
+            return True
+        self.log(f"[错误] 职业 tab 模板未命中：{zh}"
+                 "（底部 tab 区 + 全屏均已搜索）")
+        self.log("[错误] 疑似界面被遮挡或画面异常，任务已停止。请依次检查："
+                 "① Windows 输入法悬浮工具条（中/🌙/简/☺/⚙）是否盖住了底栏"
+                 "最右侧的职业 tab —— 设置 → 时间和语言 → 输入 → 高级键盘设置"
+                 " → 关闭「输入法工具栏」；"
+                 "② 游戏窗口是否被其他窗口遮挡、是否已激活到前台；"
+                 "③ 游戏是否为 1280×1024 窗口化。"
+                 "处理完请重新运行「更新装备」。")
+        return False
 
     def _enter_class_from_main(self, zh: str) -> bool:
         """主界面大圆标进入职业（纯图案）→ 模板 + _click_abs。"""

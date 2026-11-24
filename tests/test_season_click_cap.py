@@ -147,7 +147,9 @@ check('A4 失败判定唯一收口在循环顶部（底部无重复分支）',
 check('A5 成功页按「未推进」累加 stall（防点击无效死循环）',
       'stall += 1\n                    no_progress = 0' in _src)
 check('A6 所有 _ocr_screen 仍强制 no_cache=True',
-      _src.count('self.bot._ocr_screen(no_cache=True)') == 4
+      # 不写死数量：要求「带参调用数 == 全部调用数」，新增调用漏改会立刻红
+      _src.count('self.bot._ocr_screen(no_cache=True)')
+      == _src.count('self.bot._ocr_screen(')
       and 'self.bot._ocr_screen()' not in _src)
 check('A7 v2.4.10 主界面判据已并回全局注册表（任务内不再自建 _W_MAIN）',
       '_W_MAIN =' not in _src and 'GLOBAL_SCREEN_REGISTRY' in _src)

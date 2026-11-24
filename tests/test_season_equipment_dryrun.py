@@ -328,7 +328,9 @@ check('6a-2 动态词已在注册表登记',
       all(w in _reg_src for w in _VOLATILE))
 
 check('6a 源码全部 _ocr_screen 调用都带 no_cache=True（防新增调用漏改）',
-      _src.count('self.bot._ocr_screen(no_cache=True)') == 4
+      # 不写死数量：要求「带参调用数 == 全部调用数」，新增调用漏改会立刻红
+      _src.count('self.bot._ocr_screen(no_cache=True)')
+      == _src.count('self.bot._ocr_screen(')
       and 'self.bot._ocr_screen()' not in _src,
       f"带参数 {_src.count('self.bot._ocr_screen(no_cache=True)')} / "
       f"裸调用 {_src.count('self.bot._ocr_screen()')}")
