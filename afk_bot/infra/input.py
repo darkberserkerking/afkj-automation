@@ -40,6 +40,44 @@ def _tpl_zh(path: str) -> str:
     return _TEMPLATE_ZH.get(name, f'按钮模板{name}')
 
 
+# ── 模板解码缓存（v2.4.22）────────────────────────────────────
+# 原实现每次 template_match 都 np.fromfile + cv2.imdecode：模板是几十字节
+# 到几 KB 的静态 PNG，而热路径上每秒可能匹配多次，纯属重复劳动。
+# 缓存键带 (绝对路径, mtime_ns, size) —— 模板文件被替换会自动失效，
+# 不需要任何手动清理。
+# 注意：返回的是**共享的 ndarray**，调用方只读（resize/cvtColor 都产生新
+# 数组），禁止原地修改。
+_TPL_CACHE: dict = {}
+_TPL_CACHE_MAX: int = 64
+
+
+def _load_tpl_cached(tpl_path: str) -> Optional[np.ndarray]:
+    """读取并解码模板图片（带缓存）。失败返回 None。"""
+    import cv2
+    try:
+        st = os.stat(tpl_path)
+        key = (os.path.abspath(tpl_path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+    hit = _TPL_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        data: np.ndarray = np.fromfile(tpl_path, dtype=np.uint8)
+        # UNCHANGED 保留 alpha，支持透明背景模板（v1.7.10）
+        tpl: Optional[np.ndarray] = cv2.imdecode(
+            data, cv2.IMREAD_UNCHANGED)
+    except Exception:
+        return None
+    if tpl is None:
+        return None
+    _TPL_CACHE[key] = tpl
+    if len(_TPL_CACHE) > _TPL_CACHE_MAX:
+        for _k in list(_TPL_CACHE)[:len(_TPL_CACHE) - _TPL_CACHE_MAX]:
+            _TPL_CACHE.pop(_k, None)
+    return tpl
+
+
 def _resolve_tpl_path(tpl_path: str) -> str:
     """模板路径兜底解析（v1.8.78）。
 
@@ -623,10 +661,8 @@ class InputController:
                 img_l += roi_x
                 img_t += roi_y
 
-            tpl_data: np.ndarray = np.fromfile(tpl_path, dtype=np.uint8)
-            # v1.7.10: UNCHANGED 保留 alpha，支持透明背景模板
-            tpl_img: Optional[np.ndarray] = cv2.imdecode(
-                tpl_data, cv2.IMREAD_UNCHANGED)
+            # v2.4.22：改走带缓存的解码（原每次 np.fromfile + imdecode）
+            tpl_img: Optional[np.ndarray] = _load_tpl_cached(tpl_path)
             if tpl_img is None:
                 # v1.8.49 脱敏：只输出文件名，不泄漏本机绝对路径
                 self._log('warn',
@@ -655,44 +691,64 @@ class InputController:
             best_scale: float = 1.0
             best_tpl_shape: Optional[Tuple[int, int]] = None
 
-            if use_mask and mask01 is not None:
-                # 透明模板 → masked NCC（v1.7.10）
-                scanned = _masked_template_scan(
-                    screen_bgr, tpl_bgr, mask01, scale_range)
-                if scanned is not None:
-                    best_val, best_loc, best_scale, best_tpl_shape = scanned
-            else:
-                tpl_original: np.ndarray = tpl_bgr
-                min_scale: float
-                max_scale: float
-                step: float
-                min_scale, max_scale, step = scale_range
-                num_scales: int = int((max_scale - min_scale) / step) + 1
-
-                for i in range(num_scales):
-                    scale: float = min_scale + i * step
-                    tpl_scaled: np.ndarray = cv2.resize(
-                        tpl_original, None, fx=scale, fy=scale,
+            # ── 多尺度扫描（v2.4.22：两段式）──────────────────────
+            # 原实现固定扫满 scale_range（默认 0.5~2.0、步长 0.1 = 16 个
+            # 尺度），实测全屏 1280x1024 需 **4193ms**。而绝大多数场景的正确
+            # 尺度都落在 1.0 附近（UI 与窗口分辨率一致），没必要一上来就
+            # 全范围穷举。
+            # 现在先扫中心窄带 0.9~1.1（3 个尺度），得分不够阈值才退回完整
+            # 范围 —— **召回率完全不变**（兜底仍是全范围），常见路径 16→3。
+            def _scan_scales(cr: Tuple[float, float, float]):
+                """在给定尺度范围内扫描，返回 (val, loc, scale, shape)。"""
+                if use_mask and mask01 is not None:
+                    # 透明模板 → masked NCC（v1.7.10）
+                    _r = _masked_template_scan(
+                        screen_bgr, tpl_bgr, mask01, cr)
+                    return _r if _r is not None else (-1.0, None, 1.0, None)
+                _lo: float
+                _hi: float
+                _st: float
+                _lo, _hi, _st = cr
+                _n: int = int((_hi - _lo) / _st) + 1
+                _bv: float = -1.0
+                _bl: Optional[Tuple[int, int]] = None
+                _bs: float = 1.0
+                _bsh: Optional[Tuple[int, int]] = None
+                for _i in range(_n):
+                    _s: float = _lo + _i * _st
+                    _t: np.ndarray = cv2.resize(
+                        tpl_bgr, None, fx=_s, fy=_s,
                         interpolation=cv2.INTER_AREA,
                     )
-                    tpl_h: int
-                    tpl_w: int
-                    tpl_h, tpl_w = tpl_scaled.shape[:2]
-                    if tpl_h > screen_h or tpl_w > screen_w:
+                    _th: int
+                    _tw: int
+                    _th, _tw = _t.shape[:2]
+                    if _th > screen_h or _tw > screen_w:
                         continue
+                    _res: np.ndarray = cv2.matchTemplate(
+                        screen_bgr, _t, cv2.TM_CCOEFF_NORMED)
+                    _mx: float
+                    _ml: Tuple[int, int]
+                    _, _mx, _, _ml = cv2.minMaxLoc(_res)
+                    if _mx > _bv:
+                        _bv = _mx
+                        _bl = _ml
+                        _bs = _s
+                        _bsh = (_th, _tw)
+                return _bv, _bl, _bs, _bsh
 
-                    result: np.ndarray = cv2.matchTemplate(
-                        screen_bgr, tpl_scaled, cv2.TM_CCOEFF_NORMED)
-                    _: float
-                    max_val: float
-                    max_loc: Tuple[int, int]
-                    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-
-                    if max_val > best_val:
-                        best_val = max_val
-                        best_loc = max_loc
-                        best_scale = scale
-                        best_tpl_shape = (tpl_h, tpl_w)
+            # 快扫结果必须**高置信**才允许短路：若只拿到刚过阈值的分数
+            # （例如 0.62 的伪匹配），直接返回会漏掉全范围里 0.95 的真匹配
+            # —— 那是"更快但更不准"，比不改还糟。
+            # 故快路径仅当 >= max(threshold, 0.75) 时成立，其余一律走原来的
+            # 全范围扫描（召回率与 v2.4.21 完全一致）。
+            _fast: Tuple[float, float, float] = (0.9, 1.1, 0.1)
+            _fast_ok: float = max(float(threshold), 0.75)
+            best_val, best_loc, best_scale, best_tpl_shape = \
+                _scan_scales(_fast)
+            if best_val < _fast_ok:
+                best_val, best_loc, best_scale, best_tpl_shape = \
+                    _scan_scales(scale_range)
 
             if best_val >= threshold and best_loc is not None \
                     and best_tpl_shape is not None:

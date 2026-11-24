@@ -61,6 +61,7 @@ SUITES = {
     'tests/test_update_flow.py': ({1, 2, 3}, False),            # v2.4.15 源码/exe 更新链路
     'tests/test_run_tests_scheduler.py': ({1, 2, 3}, False),    # v2.4.16 并行/Tk 两阶段隔离
     'tests/test_packaging_deps.py': ({1, 2, 3}, False),         # v2.4.17 Tcl/Tk DLL 版本钉死
+    'tests/test_infra_speedup.py': ({1, 2, 3}, False),          # v2.4.22 roi/模板缓存/两段式
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -135,6 +136,12 @@ SUITES = {
 
 # 变更文件 → 必跑脚本（增量筛选，措施 3）
 CHANGE_MAP = [
+    # v2.4.22 基础设施提速（dev 分支阶段 1）：
+    #   ocr_screen 开放 roi 且缓存键必须含 roi；模板解码缓存；多尺度两段式
+    ('afk_bot/infra/screen.py', ['tests/test_infra_speedup.py']),
+    ('afk_bot/infra/input.py', ['tests/test_infra_speedup.py',
+                                'tests/test_switch_btn_match.py',
+                                'tests/test_switch_btn_region.py']),
     ('tasks/labyrinth.py', ['tests/test_labyrinth_v1820.py',
                             'tests/test_labyrinth_nav_dryrun.py',
                             'tests/test_labyrinth_full_round_dryrun.py',
