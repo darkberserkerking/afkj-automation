@@ -58,6 +58,21 @@ _a = Analysis(
         ] if os.path.isfile(os.path.join(
             os.path.dirname(sys.executable),
             'Library', 'bin', 'libcrypto-3-x64.dll')) else []),
+
+        # v2.4.17：显式钉死 Tcl/Tk DLL（真机 2026-11-24 15:33 实锤）——
+        # PyInstaller 依赖扫描从 PATH 上的 base Anaconda 抓来 8.6.10
+        # （tcl86t.dll 1706496 / tk86t.dll 1481216），而 hook 收集的
+        # _tcl_data/init.tcl 来自 cpu_default，里面写死
+        # `package require -exact Tcl 8.6.15` → 启动即 TclError 崩溃。
+        # 与 OpenSSL 同款修法：后写覆盖，TOC 同名去重保留后者。
+        *([
+            (os.path.join(os.path.dirname(sys.executable),
+                          'Library', 'bin', 'tcl86t.dll'), '.'),
+            (os.path.join(os.path.dirname(sys.executable),
+                          'Library', 'bin', 'tk86t.dll'), '.'),
+        ] if os.path.isfile(os.path.join(
+            os.path.dirname(sys.executable),
+            'Library', 'bin', 'tcl86t.dll')) else []),
     ],
     datas=[
         ('model/ocr', 'model/ocr'),   # MaaOCR 模型文件（det.onnx + rec.onnx + keys.txt）

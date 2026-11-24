@@ -59,6 +59,7 @@ SUITES = {
     'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
     'tests/test_update_flow.py': ({1, 2, 3}, False),            # v2.4.15 源码/exe 更新链路
     'tests/test_run_tests_scheduler.py': ({1, 2, 3}, False),    # v2.4.16 并行/Tk 两阶段隔离
+    'tests/test_packaging_deps.py': ({1, 2, 3}, False),         # v2.4.17 Tcl/Tk DLL 版本钉死
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
@@ -206,6 +207,9 @@ CHANGE_MAP = [
     ('app_paths.py', ['tests/test_data_dir.py']),
     # v2.4.16 调度器自身改动（两阶段隔离 / Tk 探测）
     ('tests/run_tests.py', ['tests/test_run_tests_scheduler.py']),
+    # v2.4.17 Tcl/Tk DLL 错配会让 exe 启动即崩
+    ('AFKJ自动化工具.spec', ['tests/test_packaging_deps.py',
+                             'tests/test_data_dir.py']),
     # v2.3.48 检查更新网络重试；v2.4.15 补源码/exe 更新全链路
     ('afk_bot/updater.py', ['tests/test_updater_net_retry.py',
                             'tests/test_updater_atomic_download.py',
