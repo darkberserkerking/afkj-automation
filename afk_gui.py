@@ -42,6 +42,26 @@ STDERR_LOG = os.path.join(DATA_DIR, "stderr.log")
 _RECENT_LOG_MAX: int = 20
 _recent_logs: 'collections.deque' = collections.deque(maxlen=_RECENT_LOG_MAX)
 
+# ── 日志双视图（v2.4.24）──────────────────────────────────────
+# 用户诉求：界面要能一键在「简略 / 详细」之间切换。
+# 实现原则：**文件日志始终全量**，切换只影响界面显示——
+#   简略：只留任务做了什么（开始/结果/阶段/成功/警告/错误/数据）
+#   详细：额外显示 OCR 明细、模板匹配置信度/坐标/尺度、点击坐标等
+# 判定双重保险：显式 [调试] 前缀优先；未改到位的调用点靠内容特征兜底。
+_LOG_VIEW_MAX: int = 2000
+_DEV_CONTENT_KWS: tuple = (
+    '置信度=', '坐标=(', 'tpl=(', 'snap: img_', '尺度=',
+    'OCR扫描完成', '→ 偏移+',
+)
+
+
+def _is_dev_log(msg: str) -> bool:
+    """该日志是否只在「详细」视图显示（纯技术细节）。"""
+    s = (msg or '').lstrip()
+    if s.startswith('[调试]'):
+        return True
+    return any(k in s for k in _DEV_CONTENT_KWS)
+
 # 3. 重定向标准错误输出（捕获Python底层错误）→ 独立文件，不污染崩溃报告
 try:
     sys.stderr = open(STDERR_LOG, 'a', encoding='utf-8')
@@ -263,6 +283,13 @@ class App(ctk.CTk):
         self._bot = None
         self._bot_thread = None
         self._log_queue = queue.Queue()
+        # v2.4.24 日志双视图：'user'=简略（默认）/ 'dev'=详细。
+        # **只影响界面显示**——文件日志始终全量、一行不少（见 _append_log），
+        # 崩溃快照与报 bug 取的也是全量。
+        self._log_mode: str = 'user'
+        # 界面重建用：保留最近 N 条 (hms, msg)，切换视图时据此重渲染
+        self._log_history: 'collections.deque' = collections.deque(
+            maxlen=_LOG_VIEW_MAX)
         # v2.1.17：后台线程 → 主线程 UI 任务通道（禁止跨线程调 after/控件）
         self._ui_queue = queue.Queue()
         self._closing = False   # 窗口关闭中 → 丢弃新投递的 UI 任务
@@ -696,6 +723,15 @@ class App(ctk.CTk):
             log_hdr, text='LOG', font=('Consolas', 12, 'bold'),
             text_color='#475569', anchor='w'
         ).pack(side='left', padx=(SPACE_XS, 0))
+
+        # v2.4.24：简略 / 详细 视图切换（只影响显示，文件日志始终全量）
+        self._btn_log_mode = ctk.CTkButton(
+            log_hdr, text='简略', font=('Microsoft YaHei UI', 12),
+            fg_color='transparent', hover_color=BG_BTN,
+            text_color='#475569', width=48, height=22, corner_radius=6,
+            command=self._toggle_log_mode
+        )
+        self._btn_log_mode.pack(side='right')
 
         # v2.3.17：实时计数已移到「自动推图」任务行标题旁
         # （见 _add_task_row 的 title_row），此处不再保留显示控件。
@@ -2084,11 +2120,53 @@ class App(ctk.CTk):
                          name='update-apply').start()
 
     def _clear_log(self):
-        """清空日志区"""
+        """清空日志区（同时清重建用的历史缓冲，否则切视图会「复活」旧日志）"""
         self._log_text.configure(state='normal')
         self._log_text.delete('1.0', 'end')
         self._log_text.configure(state='disabled')
+        try:
+            self._log_history.clear()
+        except Exception:
+            pass
         self._append_log('— 日志已清空 —')
+
+    # ── 日志双视图（v2.4.24）──────────────────────────────────
+
+    def _toggle_log_mode(self):
+        """在「简略 / 详细」之间切换（只影响界面，文件日志始终全量）。"""
+        self._log_mode = 'dev' if self._log_mode == 'user' else 'user'
+        try:
+            self._btn_log_mode.configure(
+                text='详细 ●' if self._log_mode == 'dev' else '简略')
+        except Exception:
+            pass
+        self._rebuild_log_view()
+        self._append_log(
+            '[信息] 日志视图：'
+            + ('详细（含 OCR/匹配/点击明细）' if self._log_mode == 'dev'
+               else '简略（仅任务进展）')
+            + '｜文件日志始终完整'
+        )
+
+    def _rebuild_log_view(self):
+        """按当前视图重建日志区（历史来自 _log_history，最多保留 1500 行）。"""
+        try:
+            self._log_text.configure(state='normal')
+            self._log_text.delete('1.0', 'end')
+            items = list(self._log_history)[-1500:]
+            for ts, msg in items:
+                if self._log_mode == 'user' and _is_dev_log(msg):
+                    continue
+                tag = self._pick_log_tag(msg)
+                self._log_text.insert('end', f'[{ts}] ', 'ts')
+                self._log_text.insert('end', msg + '\n', tag or '')
+            self._log_text.see('end')
+            self._log_text.configure(state='disabled')
+        except Exception as e:
+            try:
+                sys.stderr.write(f'[警告] 日志视图重建失败 | {e}\n')
+            except Exception:
+                pass
 
     def _toggle_settings(self):
         if self._settings_open:
@@ -2199,7 +2277,14 @@ class App(ctk.CTk):
         """
         if extra:
             msg = ' '.join(str(x) for x in (msg,) + extra)
-        self._log_queue.put(msg)
+        # v2.4.24：带上产生时刻进队列 —— 原先用刷新时刻打时间戳，
+        # 最多差 200ms；切视图重建历史时更需要真实时刻。
+        # 协议：('__log__', 'HH:MM:SS', msg)。'__status__' 元组不受影响。
+        try:
+            _hms = time.strftime('%H:%M:%S')
+        except Exception:
+            _hms = ''
+        self._log_queue.put(('__log__', _hms, msg))
         # v2.1.27（P0-2）：留一份现场快照——崩溃报告自带最后 20 行日志
         try:
             _recent_logs.append(msg)
@@ -2323,15 +2408,23 @@ class App(ctk.CTk):
                     break
                 if isinstance(item, tuple) and item[0] == '__status__':
                     latest_status = item[1]
+                elif isinstance(item, tuple) and item[0] == '__log__':
+                    log_msgs.append((item[1], item[2]))
                 else:
-                    log_msgs.append(item)
+                    # 兼容旧格式（裸字符串）→ 用刷新时刻兜底
+                    log_msgs.append((time.strftime('%H:%M:%S'), str(item)))
 
             # 批量写日志（所有日志一次性写入，state只切换2次）
             if log_msgs:
                 self._log_text.configure(state='normal')
-                ts = time.strftime('%H:%M:%S')
-                for msg in log_msgs:
-                    msg = msg.strip()  # 去除前导/尾随空格，确保 tag 匹配正确
+                for ts, raw in log_msgs:
+                    msg = (raw or '').strip()  # 去空格，确保 tag 匹配正确
+                    if not msg:
+                        continue
+                    # 全量进历史（切视图时据此重建）；界面按当前视图过滤
+                    self._log_history.append((ts, msg))
+                    if self._log_mode == 'user' and _is_dev_log(msg):
+                        continue
                     tag = self._pick_log_tag(msg)
                     self._log_text.insert('end', f'[{ts}] ', 'ts')
                     self._log_text.insert('end', msg + '\n', tag or '')

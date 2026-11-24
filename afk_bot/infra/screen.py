@@ -628,8 +628,9 @@ class ScreenCapture:
         # 新OCR完成：输出识别文本摘要
         texts: List[str] = [t[2] for t in items if t[3] >= 0.5]
         if texts:
+            # v2.4.24：OCR 识别明细归「调试」——简略视图只留任务进展
             self._log(
-                'info',
+                'debug',
                 f'ℹ️ OCR扫描完成 | '
                 f'共{len(items)}条: {texts[:15]}'
                 f'{"..." if len(texts) > 15 else ""}'

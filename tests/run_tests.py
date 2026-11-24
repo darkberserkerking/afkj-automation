@@ -64,6 +64,7 @@ SUITES = {
     'tests/test_infra_speedup.py': ({1, 2, 3}, False),          # v2.4.22 roi/模板缓存/两段式
     'tests/test_roi_safety.py': ({1, 2, 3}, False),             # v2.4.22 ROI 未命中自动全屏兜底
     'tests/test_hit_stats.py': ({1, 2, 3}, False),              # v2.4.22 命中位置采集与聚合
+    'tests/test_log_modes.py': ({1, 2, 3}, False),              # v2.4.24 日志简略/详细双视图
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -187,7 +188,8 @@ CHANGE_MAP = [
                           'tests/test_data_dir.py']),
     ('afk_gui.py', ['tests/test_gui_drawer_smoke.py',
                     'tests/test_stop_hotkey.py',
-                    'tests/test_data_dir.py']),
+                    'tests/test_data_dir.py',
+                    'tests/test_log_modes.py']),   # v2.4.24 日志双视图
     ('afk_bot/services/navigator.py', ['tests/test_navigator_smoke.py',
                                        'tests/test_global_nav_matrix.py']),
     ('templates/', ['tests/test_labyrinth_v1820.py']),

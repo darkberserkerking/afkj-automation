@@ -365,8 +365,9 @@ class InputController:
         off_l, off_t = self._coord_system.client_offset
         trim: int = self._coord_system._trim
         desc: str = f'标签={label}' if label else '无标签'
+        # v2.4.24：坐标明细归「调试」——简略视图隐藏，文件日志照旧全量
         self._log(
-            'info',
+            'debug',
             f'ℹ️ 点击 | 图像=({img_x},{img_y}) '
             f'→ 偏移+({off_l + trim},{off_t + trim}) '
             f'→ 屏幕=({screen_x},{screen_y}), {desc}'
@@ -439,7 +440,7 @@ class InputController:
         ch: int
         cw, ch = self._coord_system.window_size
         self._log(
-            'info',
+            'debug',   # v2.4.24：比例→坐标换算明细归「调试」
             f'ℹ️ 点击 | 比例=({rx:.3f},{ry:.3f}) '
             f'×窗口={cw}x{ch} '
             f'→ 图像=({img_x},{img_y}) '
@@ -674,7 +675,11 @@ class InputController:
             tpl_path: 模板图片文件路径
             threshold: 匹配置信度阈值 (0.0~1.0)
             scale_range: (min_scale, max_scale, step) 缩放搜索范围
-            silent: True 时不打印日志
+            silent: v2.4.24 起语义变更——**不再"完全不记"**，
+                True = 记一条简短的 `[调试]`（模板名/置信度/坐标/尺度），
+                False = 记完整格式（含算法、snap 参数、best_loc 等）。
+                两者都不进「简略」视图，只写文件日志与「详细」视图，
+                所以旧调用点传 silent=True 仍不会吵到用户。
             region: (x, y, w, h) 屏幕坐标搜索区域，None = 全屏
 
         Returns:
@@ -830,9 +835,22 @@ class InputController:
                 cx: int = int(img_l + best_loc[0] + tpl_w / 2)
                 cy: int = int(img_t + best_loc[1] + tpl_h / 2)
                 algo = 'maskedNCC' if use_mask else 'CCOEFF'
-                if not silent:
+                # v2.4.24：`silent` 语义变更 —— 不再「完全不记」，而是
+                # 「只记调试级别 + 简短格式」。
+                # 原因：用户要的「开发者日志」需要完整的匹配轨迹，但旧实现
+                # 让 76% 的匹配调用靠 silent 彻底消失（实测 6971 行历史日志
+                # 里带坐标的只有 8 行）。现在统一记 `[调试]`：简略视图自动
+                # 隐藏（不吵用户），文件日志与详细视图保留完整轨迹。
+                if silent:
                     self._log(
-                        'info',
+                        'debug',
+                        f'ℹ️ 匹配 {os.path.basename(str(tpl_path))} '
+                        f'置信度={best_val:.3f} 坐标=({cx},{cy}) '
+                        f'尺度={best_scale:.1f}'
+                    )
+                else:
+                    self._log(
+                        'debug',
                         f'ℹ️ 多尺度模板匹配成功 | '
                         f'{os.path.basename(tpl_path)} '
                         f'置信度={best_val:.3f} '

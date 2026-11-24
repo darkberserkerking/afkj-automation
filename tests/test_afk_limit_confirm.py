@@ -283,7 +283,14 @@ _a._log_queue = _q.Queue()
 _a._log_file = open(os.devnull, 'w', encoding='utf-8')
 try:
     _a._append_log('info', '消息')      # 旧实现这里会 TypeError ✗
-    _ok7d = _a._log_queue.get_nowait() == 'info 消息'
+    # v2.4.24：队列协议改为 ('__log__', 'HH:MM:SS', msg)（带产生时刻，
+    # 供切换视图时重建历史）。这里同时兼容旧协议，避免断言绑死实现细节。
+    _item7d = _a._log_queue.get_nowait()
+    _ok7d = (
+        (isinstance(_item7d, tuple) and _item7d[0] == '__log__'
+         and _item7d[2] == 'info 消息')
+        or _item7d == 'info 消息'
+    )
 except Exception as _e:
     _ok7d = False
 check('7d App._append_log 兼容两参调用（不再崩任务）', _ok7d)
