@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -32,6 +33,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # v2.4.9：改用当前解释器——旧硬编码路径在 Anaconda 迁移后必然失效
 PY = sys.executable
 QUARANTINE = os.path.join(ROOT, 'tests', 'quarantine.txt')
+
+# v2.4.16：Tk 用例兜底探测（SUITES 的独占标记靠人工维护，漏标就会抢 Tk）
+TK_IMPORT_RE = re.compile(
+    r'^\s*(?:import|from)\s+(?:customtkinter|tkinter)\b', re.M)
 
 # 脚本 → (层级集合, 是否独占(需串行))
 # L1 本地/提交级：<60s；L2 PR 级：全逻辑覆盖；L3 发布级：含矩阵与真实时间
@@ -53,6 +58,7 @@ SUITES = {
     'tests/test_data_dir.py': ({1, 2, 3}, False),               # v2.4.12 数据目录与旧文件迁移
     'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
     'tests/test_update_flow.py': ({1, 2, 3}, False),            # v2.4.15 源码/exe 更新链路
+    'tests/test_run_tests_scheduler.py': ({1, 2, 3}, False),    # v2.4.16 并行/Tk 两阶段隔离
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
@@ -198,6 +204,8 @@ CHANGE_MAP = [
                           'tests/test_task_description_consistency.py']),
     # v2.4.12 运行期数据目录（日志/配置落 %LOCALAPPDATA%）
     ('app_paths.py', ['tests/test_data_dir.py']),
+    # v2.4.16 调度器自身改动（两阶段隔离 / Tk 探测）
+    ('tests/run_tests.py', ['tests/test_run_tests_scheduler.py']),
     # v2.3.48 检查更新网络重试；v2.4.15 补源码/exe 更新全链路
     ('afk_bot/updater.py', ['tests/test_updater_net_retry.py',
                             'tests/test_updater_atomic_download.py',
@@ -293,6 +301,53 @@ def run_one(suite: str, real: bool = False, timeout: int = 1800) -> dict:
             'fails': fails[:5], 'out_tail': out[-400:]}
 
 
+def detect_tk_suites(suites) -> set:
+    """扫描脚本源码，把导入 tkinter/customtkinter 的用例识别为 Tk 用例。
+
+    v2.4.16：SUITES 里的独占标记靠人工维护，漏标就会和 GUI 用例抢 Tk。
+    这里按源码兜底——宁可多串行一个，也不要并行抢 Tk 资源。
+    """
+    found = set()
+    for s in suites:
+        try:
+            with open(os.path.join(ROOT, s), encoding='utf-8',
+                      errors='ignore') as f:
+                if TK_IMPORT_RE.search(f.read()):
+                    found.add(s)
+        except OSError:
+            continue
+    return found
+
+
+def execute_suites(suites, jobs: int, real: bool, run_fn=None):
+    """两阶段执行，返回 (results, 串行执行的脚本列表)。
+
+    v2.4.16 修复（L1 并行既存缺陷）：旧实现把串行批次放在
+    `with ThreadPoolExecutor(...)` **块内部**跑，也就是 Tk 用例与并行批次
+    同时运行——所谓「独占」并不独占。GUI 用例会因此偶发拿到未完成的布局
+    （winfo_width 偏小 / 与另一 Tk 脚本抢窗口），断言随机抖动。
+
+    现在的顺序：
+      1. 线程池跑完全部非 Tk 用例，`with` 退出时所有 future 已 join；
+      2. 之后才在主线程串行跑 Tk 用例，保证同一时刻只有一个 Tk 进程。
+    """
+    run_fn = run_fn or run_one
+    tk_auto = detect_tk_suites(suites)
+    serial = [s for s in suites
+              if SUITES.get(s, (set(), False))[1] or s in tk_auto]
+    parallel = [s for s in suites if s not in serial]
+
+    results = []
+    if parallel:
+        with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
+            futs = [ex.submit(run_fn, s, real) for s in parallel]
+            for fu in futs:
+                results.append(fu.result())    # 全部 join 后才离开 with
+    for s in serial:                           # 并行池已完全停下
+        results.append(run_fn(s, real))
+    return results, serial
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--level', type=int, default=2, choices=[1, 2, 3])
@@ -338,14 +393,11 @@ def main() -> int:
 
     results = []
     t0 = time.time()
-    parallel = [s for s in suites if not SUITES[s][1]]
-    serial = [s for s in suites if SUITES[s][1]]
-    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
-        futs = {ex.submit(run_one, s, a.real): s for s in parallel}
-        for s in serial:      # GUI/Tk 独占
-            results.append(run_one(s, a.real))
-        for fu, s in futs.items():
-            results.append(fu.result())
+    results, serial_used = execute_suites(suites, a.jobs, a.real)
+    if serial_used:
+        print(f'[独占] {len(serial_used)} 个 Tk 脚本在并行批次结束后串行执行：')
+        for s in serial_used:
+            print('   -', s)
 
     # 失败重试（flaky）
     if a.retry:

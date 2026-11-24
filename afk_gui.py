@@ -1513,6 +1513,19 @@ class App(ctk.CTk):
         self._refresh_batch_btns()
 
     @staticmethod
+    def _widget_scale(widget) -> float:
+        """CTk 控件缩放系数（Windows 150% DPI → 1.5），失败退化为 1.0。
+
+        v2.4.16：wraplength 是**逻辑单位**，CTk 写进内部 tk Label 时再乘本
+        系数；而 winfo_width() 返回的是**物理像素**。两者混用会让 150% DPI
+        下 wraplength 被放大 1.5 倍而溢出容器（本机实测 789→1183）。
+        """
+        try:
+            return float(ctk.ScalingTracker.get_widget_scaling(widget)) or 1.0
+        except Exception:
+            return 1.0
+
+    @staticmethod
     def _auto_wrap(label, reserve: int = 8):
         """让 label 的 wraplength 跟随**父容器真实宽度**，避免长文本溢出被裁。
 
@@ -1524,9 +1537,13 @@ class App(ctk.CTk):
         该值可能是文本请求宽度（实测出现过 532 → wraplength 被设成 518，
         反而更大）。改用 `label.master` 的宽度减去 pack 的 padx。
 
+        v2.4.16：所有 winfo_* 尺寸都是物理像素，而 configure(wraplength=)
+        收的是逻辑单位（CTk 内部再乘 widget scaling）。故先按物理像素算出
+        目标宽，再除以缩放系数后写入；否则 150% DPI 下会溢出 1.5 倍。
+
         Args:
             label: CTkLabel 实例
-            reserve: 额外右侧预留像素
+            reserve: 额外右侧预留像素（物理）
 
         Returns:
             label 本身
@@ -1549,13 +1566,15 @@ class App(ctk.CTk):
                         _padx = int(_px or 0)
                 except Exception:
                     _padx = 0
-                _target = max(80, _pw - 2 * _padx - reserve)
+                _target = max(80, _pw - 2 * _padx - reserve)   # 物理像素
+                _scale = App._widget_scale(label)
+                _target_logic = max(40, int(round(_target / _scale)))
                 try:
                     _cur = int(float(label.cget('wraplength') or 0))
                 except Exception:
                     _cur = 0
-                if abs(_cur - _target) > 4:
-                    label.configure(wraplength=_target)
+                if abs(_cur - _target_logic) > 4:
+                    label.configure(wraplength=_target_logic)
             except Exception:
                 pass
 
@@ -1913,13 +1932,21 @@ class App(ctk.CTk):
         v2.3.49：设置时按当前真实宽度同步 wraplength（首次布局前
         winfo_width=1 → 退回 160，后续 <Configure> 会自动纠正），
         并强制左对齐 —— 长错误提示不再左右被裁。
+
+        v2.4.16：宽度取自父容器（label 自身在首帧可能返回文本请求宽度），
+        且 winfo 的物理像素必须先除以缩放系数再当 wraplength 写入，
+        否则 150% DPI 下会被 CTk 二次放大而溢出。
         """
         try:
             try:
-                _w = int(self._upd_status_lbl.winfo_width())
+                _w = int(self._upd_status_lbl.master.winfo_width())   # 物理
             except Exception:
                 _w = 0
-            _wrap = max(80, _w - 14) if _w > 60 else 160
+            _scale = self._widget_scale(self._upd_status_lbl)
+            if _w > 60:
+                _wrap = max(80, int(round((_w - 14) / _scale)))
+            else:
+                _wrap = 160          # 未布局：逻辑单位保守值
             self._upd_status_lbl.configure(
                 text=text, text_color=color or TEXT_DIM,
                 justify='left', wraplength=_wrap)

@@ -435,9 +435,13 @@ try:
     check('v2.3.2 更新按钮竖排（横排会把「立即更新」截成「立即更…」✗）',
           _sc != 'left' and _sa != 'left',
           f'check={_sc} apply={_sa}（None=未显示，正常）')
+    # v2.4.16：改为 DPI 无关判据。旧断言写死 `<= 230`（100% DPI 的逻辑值），
+    # 而 `_label.cget('wraplength')` 返回的是**物理像素**，本机 150% DPI 下
+    # 正确值 292 逻辑 → 438 物理，必然误报。真正要守的是「不超过容器实际宽度」。
     _wl = int(app._upd_status_lbl._label.cget('wraplength'))
-    check('v2.3.2 状态标签 wraplength ≤ 230（长错误必须换行不溢出 ✗）',
-          _wl <= 230, f'wraplength={_wl}')
+    _wl_ct = int(app._upd_status_lbl.master.winfo_width())
+    check('v2.4.16 状态标签 wraplength 不超过容器实际宽度（DPI 无关）',
+          _wl_ct == 0 or _wl <= _wl_ct, f'wraplength={_wl} 容器宽={_wl_ct}')
     check('v2.3.2 下载进度条已创建', hasattr(app, '_upd_progress'))
     app.update_idletasks()
     _dw = app._upd_status_lbl.master.winfo_width()

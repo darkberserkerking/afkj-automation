@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import re
 import sys
 
 try:
@@ -19,6 +20,25 @@ except Exception:
     _SPEC_DIR = os.getcwd()
 if os.path.isfile(os.path.join(_SPEC_DIR, 'afk_bot', '_report_token.py')):
     _EXTRA_HIDDEN.append('afk_bot._report_token')
+
+
+# v2.4.16：exe 名的版本号改为从 afk_bot/config.py 正则读取。
+# 旧实现手写 'AFKJ自动化工具v2.4.15'，每次升补丁位都要人工改两处，漏改就
+# 出现「exe 名落后于 VERSION」的漂移。这里不 import afk_bot.config —— 那会
+# 触发 afk_bot/__init__ 的 pyautogui 全局设置，构建期无谓副作用。
+def _read_app_version() -> str:
+    try:
+        with open(os.path.join(_SPEC_DIR, 'afk_bot', 'config.py'),
+                  encoding='utf-8') as f:
+            _m = re.search(r"^VERSION:\s*str\s*=\s*'([^']+)'", f.read(), re.M)
+        if _m:
+            return _m.group(1)
+    except Exception:
+        pass
+    return 'v0.0.0'
+
+
+_APP_VERSION = _read_app_version()
 
 _a = Analysis(
     ['afk_gui.py'],
@@ -113,7 +133,7 @@ exe = EXE(
     _a.binaries,
     _a.datas,
     [],
-    name='AFKJ自动化工具v2.4.15',
+    name=f'AFKJ自动化工具{_APP_VERSION}',
     icon='afk_journey.ico',
     debug=False,
     bootloader_ignore_signals=False,
