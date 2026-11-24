@@ -978,38 +978,80 @@ def current_exe() -> Path:
 #          SyntaxWarning，未来版本会直接报错），注释里一律写成双反斜杠。
 _BAT_TEMPLATE = """@echo off
 rem ==================================================================
-rem  AFKJ update applier (rewritten v2.3.4 / ascii-only v2.4.15)
+rem  AFKJ update applier
+rem  v2.3.4 base / ascii-only v2.4.15 / parent-wait+retry v2.4.18
 rem  Kept ASCII on purpose: cmd parses .bat with the code page active
 rem  at launch, so non-ASCII here breaks the rem lines on GBK systems.
-rem  Real-machine bugs fixed in v2.3.4:
+rem  Real-machine bugs fixed so far:
 rem    1) "The batch file cannot be found" -> self-delete too early
 rem    2) "Failed to load Python DLL ...\\\\_MEI407882\\\\python311.dll"
 rem       -> copy/start too fast, old and new _MEI dirs collided
+rem    3) v2.4.18 "The process cannot access the file because it is
+rem       being used by another process" -> a single `copy` ran 3s after
+rem       the GUI pid vanished, but the PyInstaller **onefile parent
+rem       bootloader** was still deleting _MEI and still mapped the exe.
+rem       Fix: also wait for the parent pid, then retry copy up to 60x
+rem       (this additionally covers antivirus / indexer holding a handle).
+rem    4) delays use `ping -n N 127.0.0.1` instead of `timeout /t N`:
+rem       timeout aborts immediately when stdin is redirected, and on
+rem       machines whose PATH carries GNU coreutils it resolves to the
+rem       wrong binary. ping is shipped with Windows and reads no stdin.
 rem ==================================================================
 chcp 65001 >nul
 setlocal
 set "PID={pid}"
+set "PPID={ppid}"
 set "NEW={new_exe}"
 set "OLD={old_exe}"
-:wait
-tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto wait
-)
-rem 1) process exited; wait 3 more seconds to release file handles
-timeout /t 3 /nobreak >nul
-rem 2) copy over (works across drives/dirs), then drop the temp file
-copy /y "%NEW%" "%OLD%" >nul
-if errorlevel 1 (
-    echo [AFKJ] Copy failed. Please copy manually:
-    echo   from: %NEW%
-    echo   to  : %OLD%
-    pause
-    exit /b 1
-)
+
+rem ---- 1) wait for the app process to exit (max 120s) ----
+set "N1=0"
+:wait_app
+tasklist /FI "PID eq %PID%" /NH /FO CSV 2>nul | find "%PID%" >nul
+if errorlevel 1 goto wait_parent
+ping -n 2 127.0.0.1 >nul
+set /a N1=N1+1
+if %N1% GEQ 120 goto wait_parent
+goto wait_app
+
+rem ---- 2) onefile parent bootloader: still deleting _MEI, still maps exe ----
+:wait_parent
+if "%PPID%"=="0" goto settle
+set "N2=0"
+:wait_par
+tasklist /FI "PID eq %PPID%" /NH /FO CSV 2>nul | find "%PPID%" >nul
+if errorlevel 1 goto settle
+ping -n 2 127.0.0.1 >nul
+set /a N2=N2+1
+if %N2% GEQ 60 goto settle
+goto wait_par
+
+:settle
+ping -n 3 127.0.0.1 >nul
+
+rem ---- 3) copy with retry: handles may linger (antivirus, indexer) ----
+set "TRY=0"
+:retry_copy
+copy /y "%NEW%" "%OLD%" >nul 2>&1
+if not errorlevel 1 goto copy_ok
+set /a TRY=TRY+1
+if %TRY% GEQ 60 goto copy_fail
+ping -n 2 127.0.0.1 >nul
+goto retry_copy
+
+:copy_fail
+echo [AFKJ] Copy failed after 60 attempts: the old exe is still locked.
+echo   from: %NEW%
+echo   to  : %OLD%
+echo Close the app and any antivirus scan window, then copy the file
+echo above manually, or download the release again.
+pause
+exit /b 1
+
+:copy_ok
 del /f /q "%NEW%" >nul 2>&1
-rem 3) start the new build
+
+rem ---- 4) start the new build ----
 rem   IMPORTANT: give it a dedicated TEMP root so PyInstaller unpacks
 rem   into a brand-new dir instead of reusing the just-exited _MEI dir.
 set "NEWTEMP=%TEMP%\\afkj_run_%RANDOM%"
@@ -1017,18 +1059,30 @@ mkdir "%NEWTEMP%" 2>nul
 set "TEMP=%NEWTEMP%"
 set "TMP=%NEWTEMP%"
 start "" "%OLD%"
-timeout /t 2 /nobreak >nul
-rem 4) self-delete: must (goto) first so cmd stops reading this file,
+ping -n 3 127.0.0.1 >nul
+
+rem ---- 5) self-delete: must (goto) first so cmd stops reading this file,
 rem    otherwise "The batch file cannot be found" is printed.
 (goto) 2>nul & del "%~f0"
 """
 
 
 def build_updater_script(new_exe: Path, old_exe: Path,
-                         pid: Optional[int] = None) -> str:
-    """生成"等进程退出→覆盖→重启→自删"的 .bat 文本（便于单测）。"""
+                         pid: Optional[int] = None,
+                         ppid: Optional[int] = None) -> str:
+    """生成"等进程退出→覆盖→重启→自删"的 .bat 文本（便于单测）。
+
+    Args:
+        pid: 应用进程 PID（默认当前进程）
+        ppid: PyInstaller onefile 的**父 bootloader** PID。打包运行时必须
+            传 `os.getppid()`：子进程退出后父进程仍要删除 `_MEI` 解包
+            目录，期间 exe 映像仍被映射 → 此时 copy 会报
+            "file is being used by another process"（真机 v2.4.11 实测）。
+            传 0 或 None 表示不等待父进程（源码模式/单测）。
+    """
     return _BAT_TEMPLATE.format(
         pid=int(pid if pid is not None else os.getpid()),
+        ppid=int(ppid or 0),
         new_exe=str(new_exe),
         old_exe=str(old_exe),
     )
@@ -1054,8 +1108,17 @@ def launch_updater(new_exe: Path, old_exe: Optional[Path] = None,
             '自动替换仅对打包后的 exe 生效；源码模式请用 git pull 更新'
             '（或重启程序在界面点「立即更新」）')
     old = Path(old_exe or current_exe())
+    # v2.4.18：onefile 的父 bootloader 在子进程退出后还要删 _MEI 目录，
+    # 期间 exe 仍被映射 —— 必须一并等它，否则 copy 报"文件被占用"。
+    # 源码模式下 getppid() 是 shell/IDE（可能永不退出），故只认 frozen。
+    _ppid = 0
+    if is_frozen():
+        try:
+            _ppid = int(os.getppid())
+        except Exception:
+            _ppid = 0
     script = new_exe.parent / 'afkj_apply_update.bat'
-    script.write_text(build_updater_script(new_exe, old, pid),
+    script.write_text(build_updater_script(new_exe, old, pid, _ppid),
                       encoding='utf-8')
     if sys.platform.startswith('win'):
         subprocess.Popen(

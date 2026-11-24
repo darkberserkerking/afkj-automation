@@ -156,7 +156,14 @@ check('7a 脚本里有 PID 等待（tasklist 轮询）',
 # v2.3.4（真机 14:06）："batch file cannot be found" + "Failed to load Python DLL _MEI..."
 # → 覆盖改 copy /y（跨盘稳）；退出后多等 3 秒；新进程独立 TEMP；自删用 (goto) 写法
 check('7b 覆盖用 copy /y（不再跨盘 move）', 'copy /y' in bat and 'new.exe' in bat)
-check('7b2 退出后额外等 3 秒（释放句柄/_MEI 目录）', 'timeout /t 3' in bat)
+# v2.4.18：延时从 `timeout /t` 改为 `ping -n` —— timeout 在 stdin 被重定向
+# 时立即返回不等待，且 PATH 上有 GNU coreutils 时会解析到同名错误程序。
+check('7b2 退出后有 settle 等待（释放句柄/_MEI 目录）',
+      'ping -n 3 127.0.0.1' in bat)
+# v2.4.18（真机 17:2x）：onefile 父 bootloader 仍删 _MEI 并映射 exe →
+# 必须等父 PID，且 copy 单次失败要重试，否则报「文件被占用」
+check('7b2b 等父 bootloader 且 copy 失败重试',
+      'set "PPID=' in bat and 'retry_copy' in bat and 'GEQ 60' in bat)
 check('7b3 新进程独立 TEMP 根（防 _MEI 撞车）', 'set "TEMP=%NEWTEMP%"' in bat)
 # v2.3.6：`\a` 被 Python 当成 BEL → 反斜杠消失，路径变 %TEMP%fkj_run_%RANDOM% ✗
 check('7b3b 脚本里没有控制字符（\\a 必须是 \\\\a）', chr(7) not in bat and chr(8) not in bat)
