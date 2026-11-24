@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
-"""> 按钮搜索区域回归（v2.3.47）。
+"""> 按钮搜索区域回归（v2.3.47 建立，v2.4.20 扩到三组实测）。
 
-真机 2026-11-06 22:05（竖屏 747x1334）日志：
-  [22:05:08] 切换阵容（目标点1次">"）
-  [22:05:10] [警告] 未找到>按钮，已是最后一套阵容
-而截图里 > 按钮明明在右侧中部。
+三次真机报障，全都是「截图里按钮明明在，日志却说未找到>按钮」：
 
-【最终区间 rx 0.65~1.00 的由来（双截图实测，不猜）】
-  横屏 1284x1026：按钮 rx=0.686
-    0.65~0.95 → 0.992 命中 ✓   0.65~1.00 → 0.992 命中 ✓
-  竖屏 747x1334：按钮 rx=0.918
-    0.65~0.95 → **0.506 未命中** ✗  ← 用户最初指定的区间
-    0.65~0.97 → 0.865 命中（险过）
-    0.65~1.00 → **0.911 命中** ✓
-  原因：竖屏按钮中心距右边界仅 (0.95-0.918)*747≈24px，模板（scale1.2 宽 77、
-  半宽 38）放不进去，只能降到 scale 0.7 → 分数不足阈值 0.6。
-  数学要求：右边界 ≥ (686+38)/747 = **0.969**。
+① 2026-11-06 22:05 竖屏 747x1334
+   按钮 rx=0.918。旧区间 0.65~0.95 → 0.506 未命中 ✗
+   （右边界离按钮中心仅 24px，模板放不进 ROI，只能降 scale → 分数不足）
+② 2026-11-06 22:09 修正为 0.65~1.00 → 0.911 命中 ✓
+③ 2026-11-24 宽屏（用户报「识别不到切阵容的按钮」）
+   按钮 **rx=0.480**。0.65~1.00 区域内最高仅 **0.440** ✗
+   放宽到 0.30~1.00 → **0.838 命中**，且全屏该点仍是唯一最高分（无误点风险）
 
-运行：D:/anaconda3/envs/afk_gpu/python.exe tests/test_switch_btn_region.py
+结论：按钮横向位置随窗口宽高比在 0.48~0.92 漂移，左边界必须 ≤0.30，
+右边界必须到 1.00。本测试用几何断言把三组实测全部锁死。
+
+运行：D:/MySoftware/Anaconda3/envs/cpu_default/python.exe tests/test_switch_btn_region.py
 """
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +25,8 @@ sys.path.insert(0, ROOT)
 
 FAILED = []
 PASSED = [0]
+
+TPL_HALF_W = 38   # 模板 64px @scale1.2 = 77px 宽 → 半宽 38
 
 
 def check(name, cond, extra=''):
@@ -38,12 +38,26 @@ def check(name, cond, extra=''):
     print(f"[{'PASS' if ok else 'FAIL'}] {name}  {extra}", flush=True)
 
 
-# 与 AFKFormationManager._switch_btn_region 同构（相对比例）
-REGION = (0.65, 1.00, 0.25, 0.75)
-REGION_USER_095 = (0.65, 0.95, 0.25, 0.75)   # 用户最初指定（竖屏会失败）
-REGION_OLD = (0.60, 0.88, 0.25, 0.75)        # 修复前
+# ── 从源码读常量（不 import：避免拉起 pyautogui/keyboard）──────────
+SRC = open(os.path.join(ROOT, 'afk_bot/auto_farm/formation.py'),
+           encoding='utf-8').read()
 
-TPL_HALF_W = 38   # 模板 64px @scale1.2 = 77px 宽 → 半宽 38
+
+def _const(name):
+    m = re.search(rf'^{name}:\s*float\s*=\s*([\d.]+)', SRC, re.M)
+    return float(m.group(1)) if m else None
+
+
+RX0 = _const('_SWITCH_BTN_RX0')
+RY0 = _const('_SWITCH_BTN_RY0')
+RY1 = _const('_SWITCH_BTN_RY1')
+check('0a 三个区域常量都存在', None not in (RX0, RY0, RY1),
+      f'RX0={RX0} RY0={RY0} RY1={RY1}')
+
+REGION = (RX0, 1.00, RY0, RY1) if None not in (RX0, RY0, RY1) else (0.30, 1.00, 0.25, 0.75)
+REGION_USER_095 = (0.65, 0.95, 0.25, 0.75)   # 用户最初指定（竖屏失败）
+REGION_OLD = (0.60, 0.88, 0.25, 0.75)        # v2.3.47 之前
+REGION_247 = (0.65, 1.00, 0.25, 0.75)        # v2.3.47 ~ v2.4.19
 
 
 def covers(region, cx, cy, W, H, half=0):
@@ -53,46 +67,60 @@ def covers(region, cx, cy, W, H, half=0):
             and ry0 * H <= cy <= ry1 * H)
 
 
+# ── 三组真机实测 ───────────────────────────────────────────
 PORT_W, PORT_H = 747, 1334
-PORT_BTN = (686, 717)      # 竖屏实测：rx=0.918 ry=0.537 分数 0.911
+PORT_BTN = (686, 717)        # rx=0.918 ry=0.537  分数 0.911
 LAND_W, LAND_H = 1284, 1026
-LAND_BTN = (881, 551)      # 横屏实测：rx=0.686 ry=0.537 分数 0.992
-PORT_ONEKEY = (444, 1113)  # 「一键采用」按钮，必须被 y 上限排除
+LAND_BTN = (881, 551)        # rx=0.686 ry=0.537  分数 0.992
+WIDE_W, WIDE_H = 1280, 617
+WIDE_BTN = (614, 322)        # rx=0.480 ry=0.522  分数 0.838（v2.4.20 报障）
+ONEKEY = (444, 1113)         # 「一键采用」，必须被 ry 上限排除
 
-print('── ① 竖屏：0.65~1.00 必须覆盖按钮（含模板半宽）──')
+print('── ① 竖屏 747x1334：按钮 rx=0.918 ──')
 check('1a 新区域能完整放下模板', covers(REGION, *PORT_BTN, PORT_W, PORT_H,
                                         half=TPL_HALF_W),
       f'按钮 x={PORT_BTN[0]} 右缘={PORT_BTN[0]+TPL_HALF_W} '
       f'区域右缘={int(REGION[1]*PORT_W)}')
-check('1b 用户指定的 0.65~0.95 **放不下**（分叉证明）',
-      not covers(REGION_USER_095, *PORT_BTN, PORT_W, PORT_H, half=TPL_HALF_W),
-      f'区域右缘={int(0.95*PORT_W)} < 按钮右缘={PORT_BTN[0]+TPL_HALF_W}')
+check('1b 用户最初的 0.65~0.95 放不下（分叉证明）',
+      not covers(REGION_USER_095, *PORT_BTN, PORT_W, PORT_H, half=TPL_HALF_W))
 check('1c 旧区域 0.60~0.88 也放不下（原始 bug）',
       not covers(REGION_OLD, *PORT_BTN, PORT_W, PORT_H, half=TPL_HALF_W))
 check('1d 右边界理论下限 ≥0.969', (PORT_BTN[0] + TPL_HALF_W) / PORT_W >= 0.969,
       f'{(PORT_BTN[0]+TPL_HALF_W)/PORT_W:.3f}')
-check('1e 新区域不覆盖底部「一键采用」（ry 上限 0.75）',
-      not covers(REGION, *PORT_ONEKEY, PORT_W, PORT_H),
-      f'一键采用 ry={PORT_ONEKEY[1]/PORT_H:.3f}')
 
-print('\n── ② 横屏：0.65~1.00 同样命中且不误伤 ──')
-check('2a 横屏按钮被新区域覆盖', covers(REGION, *LAND_BTN, LAND_W, LAND_H,
+print('\n── ② 横屏 1284x1026：按钮 rx=0.686 ──')
+check('2a 新区域覆盖按钮', covers(REGION, *LAND_BTN, LAND_W, LAND_H,
+                                  half=TPL_HALF_W))
+check('2b 0.65~1.00 也能覆盖（v2.3.47 对横屏是对的）',
+      covers(REGION_247, *LAND_BTN, LAND_W, LAND_H, half=TPL_HALF_W))
+
+print('\n── ③ 宽屏 1280x617：按钮 rx=0.480（v2.4.20 报障场景）──')
+check('3a v2.4.19 的 0.65~1.00 **放不下**（复现报障）',
+      not covers(REGION_247, *WIDE_BTN, WIDE_W, WIDE_H, half=TPL_HALF_W),
+      f'按钮 rx={WIDE_BTN[0]/WIDE_W:.3f} < 左边界 {REGION_247[0]}')
+check('3b 新区域能完整放下模板', covers(REGION, *WIDE_BTN, WIDE_W, WIDE_H,
                                         half=TPL_HALF_W),
-      f'按钮 rx={LAND_BTN[0]/LAND_W:.3f}')
-check('2b 横屏 0.65~0.95 也能覆盖（用户区间对横屏是对的）',
-      covers(REGION_USER_095, *LAND_BTN, LAND_W, LAND_H, half=TPL_HALF_W))
-check('2c 横屏不覆盖底部「一键采用」（ry≈0.94）',
+      f'区域左缘={int(REGION[0]*WIDE_W)} ≤ 按钮左缘={WIDE_BTN[0]-TPL_HALF_W}')
+
+print('\n── ④ 不误伤底部「一键采用」──')
+check('4a 竖屏「一键采用」被 ry 上限排除',
+      not covers(REGION, *ONEKEY, PORT_W, PORT_H),
+      f'一键采用 ry={ONEKEY[1]/PORT_H:.3f}')
+check('4b 横屏底部（ry≈0.94）被排除',
       not covers(REGION, 640, int(0.94 * LAND_H), LAND_W, LAND_H))
 
-print('\n── ③ 源码静态断言（防回退）──')
-src = open(os.path.join(ROOT, 'afk_bot/auto_farm/formation.py'),
-           encoding='utf-8').read()
-check('3a 使用左边界 0.65', 'w * 0.65' in src)
-check('3b 宽度按 0.35（即右边界 1.00）', 'w * 0.35' in src)
-check('3c 不再使用旧的 0.88 右边界',
-      not ('w * 0.60' in src and 'w * 0.28' in src))
-check('3d 注释记录了双截图实测结论（0.918 / 0.969）',
-      '0.918' in src and '0.969' in src)
+print('\n── ⑤ 源码约束（防回退）──')
+check('5a 左边界 ≤0.30（必须覆盖 rx=0.48）', RX0 is not None and RX0 <= 0.30,
+      f'RX0={RX0}')
+check('5b 右边界取到客户区右缘 1.00',
+      'w * (1.0 - _SWITCH_BTN_RX0)' in SRC)
+check('5c 旧写法 w * 0.65 / w * 0.35 已移除',
+      'w * 0.65' not in SRC and 'w * 0.35' not in SRC)
+check('5d y 上限 0.75（排除一键采用）', RY1 is not None and RY1 <= 0.75,
+      f'RY1={RY1}')
+check('5e 注释保留三组实测数据（0.918 / 0.480 / 0.838）',
+      all(k in SRC for k in ('0.918', '0.480', '0.838')))
+check('5f OCR 候选里不再有重复的 ">"', "'>', '＞', '›'" in SRC)
 
 print('\n' + '=' * 56)
 if FAILED:
