@@ -52,6 +52,7 @@ SUITES = {
     'tests/test_updater_net_retry.py': ({1, 2, 3}, False),
     'tests/test_data_dir.py': ({1, 2, 3}, False),               # v2.4.12 数据目录与旧文件迁移
     'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
+    'tests/test_update_flow.py': ({1, 2, 3}, False),            # v2.4.15 源码/exe 更新链路
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
     'tests/test_status_display.py': ({1, 2, 3}, False),
@@ -197,9 +198,10 @@ CHANGE_MAP = [
                           'tests/test_task_description_consistency.py']),
     # v2.4.12 运行期数据目录（日志/配置落 %LOCALAPPDATA%）
     ('app_paths.py', ['tests/test_data_dir.py']),
-    # v2.3.48 检查更新网络重试
+    # v2.3.48 检查更新网络重试；v2.4.15 补源码/exe 更新全链路
     ('afk_bot/updater.py', ['tests/test_updater_net_retry.py',
-                            'tests/test_updater_atomic_download.py']),
+                            'tests/test_updater_atomic_download.py',
+                            'tests/test_update_flow.py']),
     # v2.3.47 > 按钮搜索区域（竖屏放宽）
     ('afk_bot/auto_farm/formation.py', ['tests/test_switch_btn_region.py']),
     # v2.3.46 挂机宝箱/沙漏区域（横竖屏归一）

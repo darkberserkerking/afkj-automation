@@ -960,17 +960,32 @@ def current_exe() -> Path:
     return Path(sys.executable if is_frozen() else sys.argv[0]).resolve()
 
 
+# ── 替换脚本（v2.4.15：整模板纯 ASCII）────────────────────────
+# 历史坑（按时间序）：
+#  v2.3.4  ① "The batch file cannot be found" → 自删太早，cmd 读不到后续行
+#          ② "Failed to load Python DLL ...\_MEI407882\python311.dll"
+#             → 覆盖/启动太快，新旧 PyInstaller 解包目录互相踩
+#          修法：等进程退出后**多等 3 秒**；用 copy /y 不跨盘 move；
+#                自删用 (goto) 2>nul & del "%~f0" 先让 cmd 停读本文件
+#  v2.4.15 ③ 中文注释与 emoji ⚠️ 让脚本在真机报错（实测复现）：
+#            cmd 执行 chcp 65001 后**仍按启动时代码页（GBK）解析后续行**，
+#            UTF-8 的中文字节被 GBK 误解 → rem 行断在字符中间，
+#            "真机" 被当成命令 → "'真机' 不是内部或外部命令" 黑窗闪一下。
+#            故本模板**保持纯 ASCII**（同 tools/launch_source.bat 的约定），
+#            错误提示也用英文，路径由 %NEW%/%OLD% 变量展开（中文路径照常显示）。
+#            ⚠ 以后改这里：不要引入任何非 ASCII 字符，否则真机复现。
+#          另外原文里的 `\_MEI407882` 是无效转义（Python 3.12+ 报
+#          SyntaxWarning，未来版本会直接报错），注释里一律写成双反斜杠。
 _BAT_TEMPLATE = """@echo off
-rem ══════════════════════════════════════════════════════════════════
-rem  AFKJ 更新替换脚本（v2.3.4 重写）
-rem  真机 2026-11-04 14:06 两个报错：
-rem   ① The batch file cannot be found  → 自删太早，cmd 读不到后续行 ✗
-rem   ② Failed to load Python DLL ..._MEI407882\python311.dll
-rem      → 覆盖/启动太快，新旧 PyInstaller 解包目录互相踩 ✗
-rem  修法：① 等进程退出后再**多等 3 秒**（让杀软/文件句柄释放）
-rem         ② 用 copy /y（不跨盘 move），成功后再删临时文件
-rem         ③ 自删用经典写法 (goto) 2>nul & del "%~f0"（先让 cmd 停止读本文件）
-rem ══════════════════════════════════════════════════════════════════
+rem ==================================================================
+rem  AFKJ update applier (rewritten v2.3.4 / ascii-only v2.4.15)
+rem  Kept ASCII on purpose: cmd parses .bat with the code page active
+rem  at launch, so non-ASCII here breaks the rem lines on GBK systems.
+rem  Real-machine bugs fixed in v2.3.4:
+rem    1) "The batch file cannot be found" -> self-delete too early
+rem    2) "Failed to load Python DLL ...\\\\_MEI407882\\\\python311.dll"
+rem       -> copy/start too fast, old and new _MEI dirs collided
+rem ==================================================================
 chcp 65001 >nul
 setlocal
 set "PID={pid}"
@@ -982,30 +997,29 @@ if not errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait
 )
-rem ① 进程已退；再等 3 秒让句柄/临时解包目录释放
+rem 1) process exited; wait 3 more seconds to release file handles
 timeout /t 3 /nobreak >nul
-rem ② 复制覆盖（跨盘/跨目录都稳），成功后删掉临时文件
+rem 2) copy over (works across drives/dirs), then drop the temp file
 copy /y "%NEW%" "%OLD%" >nul
 if errorlevel 1 (
-    echo [AFKJ] 覆盖失败，请手动复制：
-    echo    从：%NEW%
-    echo    到：%OLD%
+    echo [AFKJ] Copy failed. Please copy manually:
+    echo   from: %NEW%
+    echo   to  : %OLD%
     pause
     exit /b 1
 )
 del /f /q "%NEW%" >nul 2>&1
-rem ③ 启动新版
-rem   ⚠️ 关键：给新进程一个**独立的 TEMP 根**，让 PyInstaller 解包到
-rem      全新目录 —— 避免与刚退出进程的 _MEI 目录互相踩
-rem      （真机 14:06：Failed to load Python DLL ...\_MEI407882\python311.dll ✗）
+rem 3) start the new build
+rem   IMPORTANT: give it a dedicated TEMP root so PyInstaller unpacks
+rem   into a brand-new dir instead of reusing the just-exited _MEI dir.
 set "NEWTEMP=%TEMP%\\afkj_run_%RANDOM%"
 mkdir "%NEWTEMP%" 2>nul
 set "TEMP=%NEWTEMP%"
 set "TMP=%NEWTEMP%"
 start "" "%OLD%"
 timeout /t 2 /nobreak >nul
-rem ④ 自删：必须先 (goto) 让 cmd 停止读取本批处理，否则报
-rem    "The batch file cannot be found" ✗
+rem 4) self-delete: must (goto) first so cmd stops reading this file,
+rem    otherwise "The batch file cannot be found" is printed.
 (goto) 2>nul & del "%~f0"
 """
 
@@ -1024,8 +1038,21 @@ def launch_updater(new_exe: Path, old_exe: Optional[Path] = None,
                    pid: Optional[int] = None) -> Path:
     """启动替换脚本并返回脚本路径。**调用方随后应立即退出进程。**
 
-    非 Windows 平台不做自我替换（返回脚本但不执行），避免误操作。
+    Raises:
+        UpdateError: 源码模式且未显式指定 old_exe（见下）
+
+    v2.4.15 加固：源码模式下 `current_exe()` 取的是 `sys.argv[0]`，
+    也就是 **afk_gui.py 本身**（实测：`python afk_gui.py` 启动时为
+    `...\\afkj-automation\\afk_gui.py`）。若在此处误调而不传 old_exe，
+    脚本会执行 `copy /y <新exe> afk_gui.py` —— **把源码覆盖成 130MB
+    二进制**，且不可恢复。GUI 与 `main()` 虽各自判过 frozen，但那是
+    调用方自觉；这里补一道函数级闸门。显式传 old_exe 者视为自担风险
+    （测试/工具需要这么用）。
     """
+    if old_exe is None and not is_frozen():
+        raise UpdateError(
+            '自动替换仅对打包后的 exe 生效；源码模式请用 git pull 更新'
+            '（或重启程序在界面点「立即更新」）')
     old = Path(old_exe or current_exe())
     script = new_exe.parent / 'afkj_apply_update.bat'
     script.write_text(build_updater_script(new_exe, old, pid),

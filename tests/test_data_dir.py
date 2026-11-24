@@ -168,10 +168,16 @@ else:
     os.environ['AFKJ_DATA_DIR'] = _old_env
 
 # ── ⑥ 版本号与 spec 同步 ─────────────────────────────────────
+# v2.4.15：原来写死 'v2.4.14'，每升一次补丁位就要改测试（同类脆弱点）。
+# 改为断言「格式合法」+「spec 与 config 一致」——升版本不必再动测试，
+# 但两者不同步仍会立刻红。
 from afk_bot import config as _cfg   # noqa: E402
-check('6a config.VERSION = v2.4.14', _cfg.VERSION == 'v2.4.14', _cfg.VERSION)
+import re as _re_cfg                 # noqa: E402
+check('6a config.VERSION 形如 vX.Y.Z',
+      bool(_re_cfg.fullmatch(r'v\d+\.\d+\.\d+', _cfg.VERSION)), _cfg.VERSION)
 spec = open(os.path.join(ROOT, 'AFKJ自动化工具.spec'), encoding='utf-8').read()
-check('6b spec 名称含同一版本号', f'AFKJ自动化工具{_cfg.VERSION}' in spec)
+check('6b spec 名称含同一版本号', f'AFKJ自动化工具{_cfg.VERSION}' in spec,
+      _cfg.VERSION)
 
 for d in (td1, td2, exe_dir, localapp, exe_dir2, localapp2, td3):
     shutil.rmtree(d, ignore_errors=True)

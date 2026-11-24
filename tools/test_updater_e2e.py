@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = r'C:\Users\x9502\WorkBuddy\20260320211537'
+ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, ROOT)
 import afk_bot.config as cfg       # noqa: E402
 from afk_bot import updater as U   # noqa: E402
