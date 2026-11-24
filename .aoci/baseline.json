@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-24T09:38:32Z",
+  "updated_at": "2026-11-24T12:53:46Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -17,9 +17,9 @@
     },
     "AFKJ自动化工具.spec": {
       "role": "index",
-      "sha256": "4f3a5141163dd131bb7d64b8589e5c8024d7344c908e08ab7b4878a89d693ffd",
-      "size": 6173,
-      "normalized_sha256": "4f3a5141163dd131bb7d64b8589e5c8024d7344c908e08ab7b4878a89d693ffd"
+      "sha256": "04876273a4fb22df2a450da95a00a787e5a1c21a5e1bd8577b1261292937c5e7",
+      "size": 7569,
+      "normalized_sha256": "04876273a4fb22df2a450da95a00a787e5a1c21a5e1bd8577b1261292937c5e7"
     },
     "AGENTS.md": {
       "role": "index",
@@ -88,9 +88,9 @@
     },
     "afk_bot/config.py": {
       "role": "index",
-      "sha256": "064d00eced5b9567b531455e96854616dbac6d0476dd5a504fb127cab12c13c7",
+      "sha256": "9da92b91e2b9076b4be85fe8722bb27810c779478151867ea78526c16f7c2353",
       "size": 7877,
-      "normalized_sha256": "064d00eced5b9567b531455e96854616dbac6d0476dd5a504fb127cab12c13c7"
+      "normalized_sha256": "9da92b91e2b9076b4be85fe8722bb27810c779478151867ea78526c16f7c2353"
     },
     "afk_bot/facade.py": {
       "role": "index",
@@ -189,9 +189,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "16acc5b9d0a0274e164b2212c6f7366fb97c9389140cad5fac953a1e5fed98b3",
-      "size": 30649,
-      "normalized_sha256": "16acc5b9d0a0274e164b2212c6f7366fb97c9389140cad5fac953a1e5fed98b3"
+      "sha256": "8ee89cf6a46152e8bbf0cd4ecf9109c3e8b83f695f2e98d397625599547dfeb3",
+      "size": 30708,
+      "normalized_sha256": "8ee89cf6a46152e8bbf0cd4ecf9109c3e8b83f695f2e98d397625599547dfeb3"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -1213,9 +1213,9 @@
     },
     "tests/test_packaging_deps.py": {
       "role": "observe",
-      "sha256": "f0b2301f5bd1989313c9e7937464611d508bcf96a11bdae6a97dd6f3ed04d45f",
-      "size": 5835,
-      "normalized_sha256": "f0b2301f5bd1989313c9e7937464611d508bcf96a11bdae6a97dd6f3ed04d45f"
+      "sha256": "5c70b50844194bc64c4c3c7312250c5483c84d5919b876435a3177045c1b805c",
+      "size": 8242,
+      "normalized_sha256": "5c70b50844194bc64c4c3c7312250c5483c84d5919b876435a3177045c1b805c"
     },
     "tests/test_portrait_result_close.py": {
       "role": "observe",
