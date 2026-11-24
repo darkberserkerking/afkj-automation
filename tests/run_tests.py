@@ -62,6 +62,7 @@ SUITES = {
     'tests/test_run_tests_scheduler.py': ({1, 2, 3}, False),    # v2.4.16 并行/Tk 两阶段隔离
     'tests/test_packaging_deps.py': ({1, 2, 3}, False),         # v2.4.17 Tcl/Tk DLL 版本钉死
     'tests/test_infra_speedup.py': ({1, 2, 3}, False),          # v2.4.22 roi/模板缓存/两段式
+    'tests/test_roi_safety.py': ({1, 2, 3}, False),             # v2.4.22 ROI 未命中自动全屏兜底
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占

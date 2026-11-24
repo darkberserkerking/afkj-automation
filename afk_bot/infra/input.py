@@ -301,13 +301,62 @@ class InputController:
         pyautogui.mouseUp(button='left')
         time.sleep(0.3)
 
-    def click_at(self, img_x: int, img_y: int, label: str = '') -> None:
+    def wait_after_click(self, max_wait: float = 0.5,
+                         poll: float = 0.08,
+                         diff_thresh: float = 1.5) -> float:
+        """点击后等画面稳定（v2.4.22，dev 阶段 1.4）。
+
+        原实现在 click_at 尾部固定 `sleep(0.5)`：界面早就响应完了也要等满
+        0.5 秒。改为「画面不再变化就立刻返回」——连续两帧缩略灰度图的平均
+        绝对差 < diff_thresh 即视为稳定。
+
+        **语义等价性**：max_wait 取原固定值，最坏情况与旧行为完全相同，
+        只是常见情况下提前返回；截图不可用（窗口最小化/未就绪）时退回
+        固定 sleep，保证时序不变。
+
+        Args:
+            max_wait: 最长等待（秒），即原固定 sleep 的值
+            poll: 轮询间隔（秒）。snap 本身约 100ms，实际粒度受其限制
+            diff_thresh: 稳定判据（灰度 0-255 的平均绝对差）
+
+        Returns:
+            实际等待秒数
+        """
+        t_start: float = time.perf_counter()
+        prev: Optional[np.ndarray] = None
+        while True:
+            elapsed: float = time.perf_counter() - t_start
+            if elapsed >= max_wait:
+                return elapsed
+            time.sleep(min(poll, max(0.0, max_wait - elapsed)))
+            try:
+                img, _, _, _, _ = self._screen_capture.snap()
+                if img is None or img.width <= 0:
+                    break
+                cur: np.ndarray = np.asarray(
+                    img.convert('L').resize((64, 64)), dtype=np.float32)
+            except Exception:
+                break
+            if prev is not None:
+                if float(np.abs(cur - prev).mean()) < diff_thresh:
+                    return time.perf_counter() - t_start
+            prev = cur
+        # 截图链路不可用 → 退回固定等待，行为与改动前一致
+        _remain: float = max(0.0, max_wait - (time.perf_counter() - t_start))
+        if _remain > 0:
+            time.sleep(_remain)
+        return time.perf_counter() - t_start
+
+    def click_at(self, img_x: int, img_y: int, label: str = '',
+                 settle: float = 0.5) -> None:
         """图像相对坐标 → 屏幕绝对坐标 → 点击。
 
         Args:
             img_x: 图像 X 坐标（相对于截图左上角，像素）
             img_y: 图像 Y 坐标（相对于截图左上角，像素）
             label: 日志标签
+            settle: 点击后最长等待（秒）。v2.4.22 起改为「画面稳定即返回」，
+                最坏仍等满该值（见 wait_after_click）
         """
         screen_x: int
         screen_y: int
@@ -322,7 +371,8 @@ class InputController:
             f'→ 屏幕=({screen_x},{screen_y}), {desc}'
         )
         self.click_abs(screen_x, screen_y)
-        time.sleep(0.5)
+        # v2.4.22：固定 sleep(0.5) → 等画面稳定（最坏仍是 settle 秒）
+        self.wait_after_click(max_wait=settle)
 
     # ── 图像坐标长按（v1.8.62：终止确认弹窗「长按结束」）────────
 
@@ -608,6 +658,7 @@ class InputController:
         scale_range: Tuple[float, float, float] = (0.5, 2.0, 0.1),
         silent: bool = False,
         region: Optional[Tuple[int, int, int, int]] = None,
+        fallback_full: bool = True,
     ) -> Optional[Tuple[int, int]]:
         """多尺度模板匹配，查找按钮位置。
 
@@ -647,6 +698,10 @@ class InputController:
                 return None
             screen_bgr: np.ndarray = cv2.cvtColor(
                 np.array(img), cv2.COLOR_RGB2BGR)
+            # v2.4.22：保留全图副本，供 region 未命中时兜底重扫
+            _full_bgr: np.ndarray = screen_bgr
+            _full_l: int = img_l
+            _full_t: int = img_t
 
             # 如果指定了 region，裁剪 ROI
             if region is not None:
@@ -749,6 +804,24 @@ class InputController:
             if best_val < _fast_ok:
                 best_val, best_loc, best_scale, best_tpl_shape = \
                     _scan_scales(scale_range)
+
+            # v2.4.22 安全网：region 内没到阈值 → 全屏兜底重扫。
+            # ROI 只是为了快，绝不能因为区域设小了就"找不到目标"。
+            # 兜底命中时打警告，提示该处 region 可能需要核对。
+            if (region is not None and best_val < threshold
+                    and fallback_full):
+                screen_bgr = _full_bgr
+                screen_h, screen_w = screen_bgr.shape[:2]
+                img_l, img_t = _full_l, _full_t
+                best_val, best_loc, best_scale, best_tpl_shape = \
+                    _scan_scales(scale_range)
+                if best_val >= threshold:
+                    self._log(
+                        'warn',
+                        f'[警告] 搜索区域 {region} 内未匹配到 '
+                        f'{os.path.basename(str(tpl_path))} → 全屏兜底命中'
+                        f'（置信度={best_val:.3f}，该处 region 可能设小了）'
+                    )
 
             if best_val >= threshold and best_loc is not None \
                     and best_tpl_shape is not None:

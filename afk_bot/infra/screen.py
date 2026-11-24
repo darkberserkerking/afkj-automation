@@ -514,6 +514,7 @@ class ScreenCapture:
     def ocr_screen(
         self, img: Optional[Image.Image] = None, no_cache: bool = False,
         roi: Optional[Tuple[int, int, int, int]] = None,
+        fallback_full: bool = True,
     ) -> List[Tuple[int, int, str, float, int, int]]:
         """全屏 / 区域 OCR 识别（带缓存，60 秒内相同画面不重复识别）。
 
@@ -525,6 +526,11 @@ class ScreenCapture:
                 只识别该区域，耗时随面积下降——实测全屏 1280x1024 为
                 1501ms，400x300 为 597ms。
                 **返回坐标已还原到整图**，调用方无需再加偏移。
+            fallback_full: **ROI 未命中时是否自动全屏兜底**（v2.4.22，
+                默认 True）。这是「ROI 绝不能导致丢目标」的安全网：
+                ROI 内一条文字都没有 → 自动全屏再识别一次并打警告，
+                宁可慢也不漏。只有**反向判定**（确认某处「没有」某文字）
+                才应显式传 False，否则语义会被兜底破坏。
 
         no_cache 为什么必须有：缓存键是**稀疏采样指纹**（10 个采样点，
         见 `_ocr_fingerprint`）——**小面积变化不会改变指纹** ✗。
@@ -593,6 +599,16 @@ class ScreenCapture:
                     return cached_items
 
         items: List = self._ocr_img(img, roi=roi)
+        # v2.4.22 安全网：ROI 内一条都没有 → 全屏兜底。
+        # ROI 是为了快，但如果区域设小了就会漏掉目标 —— 那比慢严重得多。
+        # 兜底结果写回 roi 键，避免同一处反复触发全屏识别。
+        if roi and not items and fallback_full:
+            self._log(
+                'warn',
+                f'[警告] ROI={roi} 内未识别到任何文字 → 自动全屏兜底'
+                f'（该处 ROI 可能设小了，建议核对）'
+            )
+            items = self._ocr_img(img)
         if not no_cache:
             self._ocr_cache[key] = (now, items)
 
