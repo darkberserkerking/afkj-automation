@@ -3,8 +3,8 @@
 ────────────────────────────────────────────
 【跨环境路径适配方案】（三级解析，无硬编码）
   优先级 1：环境变量 `AFKJ_LAUNCHER_PATH`（部署/CI 用，最高优先）
-  优先级 2：配置文件 `game_paths.json`（项目根，用户可编辑，随包分发
-            一份默认模板；字段 launcher_path / launcher_args）
+  优先级 2：配置文件 `game_paths.json`（运行期数据目录，用户可编辑；缺
+            失时自动写默认模板；字段 launcher_path / launcher_args）
   优先级 3：常见安装目录自动探测（各盘符 × Farlight Launcher 目录）
   优先级 4：开始菜单快捷方式解析（.lnk → 目标路径，pywin32 COM）
   全部失败 → 返回 None（任务日志给出明确配置指引，不猜测）
@@ -30,6 +30,7 @@ import subprocess
 import time
 from typing import Callable, List, Optional
 
+import app_paths
 from afk_bot.infra.timing import sleep_interruptible
 
 # ── 默认值（可被 game_paths.json / 环境变量覆盖）────────────────
@@ -62,12 +63,12 @@ def project_root() -> str:
 
 
 def config_path() -> str:
-    """配置文件路径（v1.9.68b：打包后为 exe 同目录，用户可直接编辑；
-    开发环境为项目根）。"""
-    if getattr(sys, 'frozen', False):
-        return os.path.join(os.path.dirname(sys.executable),
-                            CONFIG_FILENAME)
-    return os.path.join(project_root(), CONFIG_FILENAME)
+    """配置文件路径（v2.4.12：统一走运行期数据目录。
+
+    打包运行 = %LOCALAPPDATA%\\AFKJ自动化工具\\game_paths.json；
+    源码运行 = 仓库根。旧版写在 exe 同目录的文件由 app_paths.migrate_legacy 迁移。
+    """
+    return os.path.join(app_paths.data_dir(), CONFIG_FILENAME)
 
 
 def ensure_config_template() -> None:

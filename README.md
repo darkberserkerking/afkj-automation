@@ -119,7 +119,27 @@ tests/               干跑 / 专项测试（python tests/run_tests.py --level 3
 templates/           模板匹配素材
 model/ocr/           PP-OCRv5 检测/识别模型（已内置）
 docs/                使用说明、开发手册、界面命名规范
+app_paths.py         运行期数据目录解析（日志/配置落 %LOCALAPPDATA%）
 ```
+
+## 📂 数据目录（日志与配置在哪）
+
+exe 不再往自己所在目录写日志和配置（Program Files 受 UAC 保护写不进；
+放桌面会把桌面弄乱）。运行期数据统一落用户数据区：
+
+| 运行方式 | 数据目录 |
+|---|---|
+| 打包 exe | `%LOCALAPPDATA%\AFKJ自动化工具\` |
+| 源码运行 | 仓库根目录 |
+
+目录内文件：`_afk_gui_log.txt`（运行日志）、`stderr.log`、`CRASH_REPORT.log`、
+`afkj_net_diag.log`（检查更新诊断）、`tasks_enabled.json`（任务启用与顺序）、
+`afkj_config.json`（玩法阈值）、`game_paths.json`（启动器路径）、
+`gui_config.json`（界面设置）、`ocr_memory.json`（OCR 记忆）。
+
+- 首次运行新版本会自动把旧版散在 exe 同目录的文件**搬进**数据目录，目标已存在则不覆盖
+- 想改位置：设环境变量 `AFKJ_DATA_DIR=<目录>`（对所有运行方式生效）
+- 想清空重来：直接删掉该目录，下次启动自动重建默认值
 
 ## 🧪 测试
 
@@ -134,7 +154,7 @@ python tests/run_tests.py --level 3 --jobs 4   # 全量（约 2.5 分钟）
 |---|---|
 | 点「开始」没反应 | 确认游戏窗口是 **1280×1024 窗口化**且未被最小化 |
 | 按键无效 / 点击没落在正确位置 | 以**管理员身份**运行；确认游戏在前台 |
-| 识别不出某个界面 | 把 `_afk_gui_log.txt` 里带 `候选=` 的那行发到 Issue |
+| 识别不出某个界面 | 把数据目录里 `_afk_gui_log.txt` 带 `候选=` 的那行发到 Issue（位置见上「数据目录」） |
 | 想换分辨率 | 改 `templates/` 与 `afkj_config.json` 里的坐标（见 `docs/坐标规范.md`） |
 
 ## 🙏 致谢

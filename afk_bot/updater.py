@@ -285,14 +285,11 @@ _DIAG_PATH_CACHE: Optional[str] = None
 
 
 def _diag_candidates() -> List[str]:
-    """诊断日志候选路径（按用户可发现性排序）。"""
+    """诊断日志候选路径（按用户可发现性排序；v2.4.12 首选数据目录）。"""
     cands: List[str] = []
     try:
-        if getattr(sys, 'frozen', False):
-            base = os.path.dirname(os.path.abspath(sys.executable))
-        else:
-            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        cands.append(os.path.join(base, 'afkj_net_diag.log'))
+        from app_paths import data_path as _dp
+        cands.append(_dp('afkj_net_diag.log'))
     except Exception:
         pass
     try:
@@ -312,8 +309,8 @@ def _diag_path() -> str:
 
     v2.3.52（真机 00:02）：v2.3.51 固定用 `%TEMP%`，用户报告该文件
     **根本不存在**（Windows「找不到文件」）—— 说明该路径在某环境写不进。
-    改为按 exe 同目录 → %TEMP% → CWD 逐个探测，返回第一个可写者，
-    错误提示里显示的就是**真实**路径。
+    改为按 数据目录 → %TEMP% → CWD 逐个探测，返回第一个可写者，
+    错误提示里显示的就是**真实**路径（v2.4.12：首选 %LOCALAPPDATA% 数据目录）。
 
     `AFKJ_NET_DIAG_PATH` 环境变量仍优先（单元测试必须用它隔离）。
     """

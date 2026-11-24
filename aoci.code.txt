@@ -3,29 +3,30 @@
 ===/<repository>/===
 .gitattributes[FV6T]: F:声明 Git 检出统一 LF 行尾，保证 AOCI Baseline 字节一致 | R:- | A:- | S:* text=auto eol=lf 覆盖 Windows autocrlf，否则整棵树被 AOCI 判为 stale
 .gitignore[FC6T]: F:排除构建产物、本机配置、凭据与运行日志，避免入库 | R:- | A:- | S:不得忽略 aoci.txt/aoci.meta.txt/aoci.code.txt/AGENTS.md，被忽略的资产会被 scan 静默跳过
-AFKJ自动化工具.spec[OV8S]: F:PyInstaller 单文件打包脚本，产出请求管理员权限的 exe（名称随 config.VERSION 同步，现为 v2.4.11） | R:code:afk_gui.py | A:Analysis,EXE | S:Library/bin 的 libssl/libcrypto-3-x64.dll 必须后写覆盖，OpenSSL 与 _ssl 错配会让证书解析 0/81；certifi CA、model/ocr、templates 必须显式打包
+AFKJ自动化工具.spec[OV8S]: F:PyInstaller 单文件打包脚本，产出请求管理员权限的 exe（名称随 config.VERSION 同步，现为 v2.4.12） | R:code:afk_gui.py | A:Analysis,EXE | S:Library/bin 的 libssl/libcrypto-3-x64.dll 必须后写覆盖，OpenSSL 与 _ssl 错配会让证书解析 0/81；certifi CA、model/ocr、templates 必须显式打包
 AGENTS.md[SG6S]: F:面向 Agent 的仓库认知使用说明与最小工具入口 | R:code:aoci.txt,code:aoci.meta.txt | A:- | S:aoci:begin/aoci:end 区块由 aoci init 生成；静态文档不得覆盖 aoci_rules 与 Guide 的机器事实
 LICENSE[SV5L]: F:GNU AGPL-3.0 许可证全文 | R:- | A:- | S:修改后分发（含以网络服务方式提供）必须同样以 AGPL-3.0 开源并保留版权与许可证文本
-README.md[SG7S]: F:项目说明：功能清单、两种启动方式、依赖清单、更新机制与测试入口 | R:code:afk_gui.py | A:- | S:仅适配 1280×1024 窗口化并需管理员权限；依赖清单缺 pyautogui/pyclipper/shapely 会在 import 阶段直接崩，报 ModuleNotFoundError 多半是选错了解释器
+README.md[SG7S]: F:项目说明：功能清单、两种启动方式、依赖清单、数据目录、更新机制与测试入口 | R:code:afk_gui.py | A:- | S:仅适配 1280×1024 窗口化并需管理员权限；依赖清单缺 pyautogui/pyclipper/shapely 会在 import 阶段直接崩，报 ModuleNotFoundError 多半是选错了解释器；运行期日志与配置位置见「数据目录」节（打包=%LOCALAPPDATA%\\AFKJ自动化工具，可用 AFKJ_DATA_DIR 覆盖）
 _test_asset.txt[TQ2T]: F:测试用资产样例：exe 文件名与 Release 下载链接 | R:- | A:- | S:内容固定为 v2.2.29 样例，不随版本更新，勿当作当前发布版本
-afk_gui.py[EU9L]: F:GUI 与任务调度入口：任务行与抽屉、日志区、启停及启动更新检查 | R:code:afk_bot/facade.py,code:task_registry.py | A:App.__init__,_build_ui,_on_task_drag_motion,_on_task_status | S:崩溃防护必须在文件最顶端，stderr 与崩溃日志拆两个文件；PROJECT_DIR 源码取本文件目录、打包取 exe 目录；拖拽需用 tk 层 place_configure（CTk 的 place() 会将 x/y 乘窗口缩放，位移被放大）
+afk_gui.py[EU9L]: F:GUI 与任务调度入口：任务行与抽屉、日志区、启停及启动更新检查 | R:code:afk_bot/facade.py,code:task_registry.py,code:app_paths.py | A:App.__init__,_build_ui,_on_task_drag_motion,_on_task_status | S:崩溃防护必须在文件最顶端，stderr 与崩溃日志拆两个文件；所有运行期数据走 app_paths.data_dir()（打包=%LOCALAPPDATA%\\AFKJ自动化工具），启动时先 migrate_legacy 再打开 stderr.log；拖拽需用 tk 层 place_configure（CTk 的 place() 会将 x/y 乘窗口缩放，位移被放大）
 afkj_config.json[FC7T]: F:运行期配置：卡住判定、战斗阈值与横竖屏按钮比例坐标 | R:code:afk_bot/config.py | A:- | S:结构须与 default_config 对齐；缺 button_positions 节会整体回退硬编码坐标
 maa_ocr.py[KA9L]: F:PP-OCRv5 ONNX 推理引擎：DB 检测、CTC 识别与声明式文字匹配 | R:code:afk_bot/infra/screen.py | A:MaaOCR.recognize,recognize_full,create_ocr | S:只依赖 onnxruntime 与 opencv，禁止引入 paddle；模型必须与 model/ocr/keys.txt 同源配套；ROI 与颜色预过滤可减少九成计算
 overview.md[SG6S]: F:v2.2.6 改动说明：执裁之盾与制裁之盾是两个不同烙印，据此修正三处代码 | R:code:tasks/labyrinth.py | A:- | S:两个词仅差首字，OCR 极易串读，禁止当成同一烙印或良性误读处理
-task_registry.py[CD8M]: F:任务元数据与实例注册、排序、启停状态及持久化 | R:code:tasks/__init__.py,code:afk_gui.py | A:TaskRegistry.register,add_instance,load_config,save_config | S:旧格式 {id: bool} 必须在 load_config 时自动迁移；实例顺序变更要走 normalize_boundary_order，否则边界实例被挤出而不执行
+task_registry.py[CD8M]: F:任务元数据与实例注册、排序、启停状态及持久化 | R:code:tasks/__init__.py,code:afk_gui.py,code:app_paths.py | A:TaskRegistry.register,add_instance,load_config,save_config | S:旧格式 {id: bool} 必须在 load_config 时自动迁移；实例顺序变更要走 normalize_boundary_order，否则边界实例被挤出而不执行；默认路径由 app_paths.data_path 给出，afk_gui 打包时覆写为数据目录，外部可改 _CONFIG 隔离测试
+app_paths.py[CC8S]: F:运行期数据目录唯一真相源：解析日志/配置/诊断落盘目录并提供旧文件迁移 | R:code:afk_gui.py,code:task_registry.py | A:is_frozen,app_dir,data_dir,data_path,migrate_legacy | S:AFKJ_DATA_DIR 每次调用重新解析不缓存；打包=%LOCALAPPDATA%\\AFKJ自动化工具、源码=仓库根；migrate_legacy 只在 frozen 执行，目标已存在绝不覆盖、源文件被占用则跳过；任何模块都不得再自行拼 exe 目录写盘
 
 ===/<repository>/afk_bot/===
 __init__.py[CG8T]: F:包入口：导出三层子模块并施加全局 pyautogui 设置 | R:code:afk_bot/facade.py,code:task_registry.py | A:__all__,VERSION,default_config | S:必须 import task_registry 与 tasks 触发任务注册副作用，漏掉则任务列表为空；FAILSAFE=False 全局关闭
 bug_report.py[IO7L]: F:Bug 上报：截图+日志+环境先本地落盘，再上传为 GitHub Issue | R:code:afk_bot/updater.py | A:collect,upload,report,retry_pending | S:Unity 窗口 PrintWindow 截图为全黑，必须 ImageGrab 按窗口 rect 裁剪；上传走 Git Data API 而非 git push（git 端点常 502）；无 Token 只落盘返回 None
-config.py[CC8S]: F:全局常量：版本号（现 v2.4.11，须与 spec 同步）、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点『点击空白处』等提示文字本身，绝不点一键购买或价格按钮；_BTN_POS 由 afkj_config.json 提供，缺失才回退硬编码
+config.py[CC8S]: F:全局常量：版本号（现 v2.4.12，须与 spec 同步）、弹窗退出判据词、按钮比例坐标与默认运行配置 | R:code:afkj_config.json,code:app_paths.py | A:_load_button_positions,default_config,LEVEL_PREFIXES | S:礼包弹窗只点『点击空白处』等提示文字本身，绝不点一键购买或价格按钮；afkj_config.json 查找顺序为数据目录→旧 exe 目录→仓库根，全部缺失才回退硬编码坐标
 facade.py[CG8L]: F:跨层门面 AFKBot，委托 AFKBotCore 并保持旧 API 完全兼容 | R:code:afk_bot/auto_farm/loop.py | A:AFKBot.run,run_auto_farm,click_ratio,template_match | S:本层只做委托不得加业务逻辑；GUI 与 tasks 依赖其旧方法签名，改名即破坏兼容
-updater.py[IV8L]: F:自动更新：查 Release、下载 exe、生成 bat 等进程退出后替换并重启 | R:code:afk_bot/config.py,code:afk_gui.py | A:check_latest,download_asset,launch_updater,check_source,git_pull | S:运行中的 exe 无法自我覆盖，必须由 .bat 等 PID 退出后替换；零第三方依赖只用 urllib；SSL 需 Windows 容忍回退与本地代理探测，否则 HTTPS 报 ASN1 NOT_ENOUGH_DATA；401/403 须在同一 opener 去掉 Authorization 匿名重试（fail-open），只有匿名也失败才报 Token 无效，失效 Token 不得堵死匿名通道
+updater.py[IV8L]: F:自动更新：查 Release、下载 exe、生成 bat 等进程退出后替换并重启 | R:code:afk_bot/config.py,code:afk_gui.py | A:check_latest,download_asset,launch_updater,check_source,git_pull | S:运行中的 exe 无法自我覆盖，必须由 .bat 等 PID 退出后替换；零第三方依赖只用 urllib；SSL 需 Windows 容忍回退与本地代理探测，否则 HTTPS 报 ASN1 NOT_ENOUGH_DATA；401/403 须在同一 opener 去掉 Authorization 匿名重试（fail-open），只有匿名也失败才报 Token 无效；诊断日志按 数据目录→%TEMP%→CWD 探测首个可写路径
 
 ===/<repository>/afk_bot/auto_farm/===
 __init__.py[CG4T]: F:auto_farm 层包说明：推图专属逻辑，其他任务不应导入 | R:- | A:- | S:-
 battle.py[DB8L]: F:战斗监控：等待战斗结束、关闭结算界面、处理确认与退出弹窗 | R:code:afk_bot/infra/timing.py,code:afk_bot/services/detector.py | A:wait_for_manual_battle_end,step_close_result,dismiss_confirm_dialog | S:胜负判定靠 OCR，误判会把胜利记成失败并触发换阵；等待有 max_wait 60s 兜底；休眠必须走 sleep_interruptible 才响应停止
 formation.py[DB8L]: F:阵容与备战：切换阵容、自动挑战、选择可用挑战模式 | R:code:afk_bot/infra/input.py,code:afk_bot/services/navigator.py | A:switch_formation,prepare_and_start_battle,click_challenge_btn,detect_available_challenge_mode | S:'>' 按钮搜索区右边界必须取到 1.00，取 0.95 会把竖屏按钮裁出区域（分数 0.506 未命中）而误报已是末套阵容；位置只找一次后连点
-loop.py[AB9L]: F:推图主循环编排：导航-阵容-战斗-结算状态机与卡死/掉线/连败恢复 | R:code:afk_bot/services/detector.py,code:afk_bot/services/navigator.py,code:afk_bot/auto_farm/battle.py,code:afk_bot/auto_farm/formation.py | A:run,_run_main_loop,run_auto_farm | S:run_auto_farm 入口必须先复位 _stop（复位点原本只在 _run_main_loop 内），否则上轮按过停止后本轮直接返回 stopped；_stop_event 才是本轮停止权威
+loop.py[AB9L]: F:推图主循环编排：导航-阵容-战斗-结算状态机与卡死/掉线/连败恢复 | R:code:afk_bot/services/detector.py,code:afk_bot/services/navigator.py,code:afk_bot/auto_farm/battle.py,code:afk_bot/auto_farm/formation.py | A:run,_run_main_loop,run_auto_farm | S:run_auto_farm 入口必须先复位 _stop（复位点原本只在 _run_main_loop 内），否则上轮按过停止后本轮直接返回 stopped；_stop_event 才是本轮停止权威；config_file 与 ocr_memory.json 均取自 app_paths.data_dir，禁止再拼 exe 目录
 
 ===/<repository>/afk_bot/infra/===
 __init__.py[CG4T]: F:infra 层包说明：任一任务启动前必须就绪的公共地基 | R:- | A:- | S:-
@@ -53,7 +54,7 @@ v1.8.49_审查报告.md[SG4S]: F:v1.8.49 规范沉淀、审查问题清单与变
 客户使用说明.md[SG5S]: F:面向最终用户的操作说明：运行前准备、勾选任务与常见问题 | R:code:afk_gui.py | A:- | S:-
 导航统一化审查.md[SG4T]: F:v1.9.11 导航统一化审查：页面跳转已收敛到全局导航 | R:code:tasks/global_nav.py | A:- | S:-
 导航能力规范.md[SG7S]: F:全局导航能力规范：画面识别判据、最短路径与可直入循环的条件 | R:code:tasks/global_nav.py,code:tasks/nav_planner.py | A:- | S:目标无法识别时不得静默成功，必须显式失败；同一循环内的界面可直接开始执行，有严格先后要求的必须从起点重来
-开发指导手册.md[SG9L]: F:新增任务与后续开发的权威手册：架构分层、日志规范与界面规范摘要 | R:code:tasks/base.py,code:docs/界面命名规范.md | A:- | S:界面与动作术语以《界面命名规范》为单一真相源，本手册只做摘要；新增任务必须继承 BaseTask 并注册到 catalog
+开发指导手册.md[SG9L]: F:新增任务与后续开发的权威手册：架构分层、日志规范与界面规范摘要 | R:code:tasks/base.py,code:docs/界面命名规范.md | A:- | S:界面与动作术语以《界面命名规范》为单一真相源，本手册只做摘要；新增任务必须继承 BaseTask 并注册到 catalog；运行期数据统一落数据目录（打包=%LOCALAPPDATA%\\AFKJ自动化工具），game_paths.json 也在其中而非 exe 同目录
 战斗轮询时序分析.md[SG4M]: F:战斗内跳过按钮命中率的时序测量与只读分析 | R:code:tasks/labyrinth.py | A:- | S:-
 测试流程优化方案.md[SG6M]: F:测试提速方案与落地记录：把测试态 sleep 加速，全量 L3 由约 25 分钟降至数秒 | R:code:tests/run_tests.py | A:- | S:提速来自测试态 sleep 加速而非删用例，用例数与通过率必须保持不变
 界面判据清单.md[SG7S]: F:全量界面判据清单：三层识别（detector/任务内状态）与置信度门槛 | R:code:afk_bot/services/detector.py | A:- | S:置信度门槛 detector 0.3、任务层 0.5、点击类 0.6；标黄条目属未确认推断，落地前需复查；动态元素（如宝箱行）不得写进常驻判据，单一真相源=screen_registry
@@ -105,7 +106,7 @@ daily_quest.py[DB7L]: F:每日任务：进任务页、领每日奖励与活跃�
 dream_realm.py[DB6M]: F:迷梦之域：进主界面、挑战、结算后循环至次数耗尽 | R:code:tasks/base.py,code:tasks/screen_registry.py | A:run,_play_loop,_read_attempts | S:次数以「次数N/10」文本为准，读不到次数时不得盲循环
 friend_gift.py[DB6S]: F:友情点：进好友界面、一键赠礼并收取 | R:code:tasks/menu_nav.py,code:tasks/base.py | A:run,_gift_flow,_gift_done_today | S:收礼进度 N/10 已达上限即视为今日完成，不得重复点击
 game_control.py[EW7M]: F:两个特殊任务：启动游戏与关闭游戏 | R:code:tasks/game_launcher.py,code:tasks/base.py | A:StartGameTask.run,CloseGameTask.run | S:游戏已在运行时启动任务不得重复拉起；等待窗口上限 120s，超时须返回 failed 并给出排查指引
-game_launcher.py[IW7M]: F:启动器路径分级解析、进程拉起与游戏窗口存在检测 | R:code:afk_bot/infra/screen.py | A:resolve_launcher,launch,is_running | S:路径解析顺序为环境变量、game_paths.json、常见安装目录、开始菜单快捷方式，禁止硬编码；全部失败返回 None 并给配置指引，不猜路径
+game_launcher.py[IW7M]: F:启动器路径分级解析、进程拉起与游戏窗口存在检测 | R:code:afk_bot/infra/screen.py,code:app_paths.py | A:resolve_launcher,launch,is_running | S:解析顺序为环境变量、game_paths.json、常见安装目录、开始菜单快捷方式，禁止硬编码；game_paths.json 位于 app_paths.data_dir()，缺失时自动写模板；全部失败返回 None 并给配置指引，不猜路径
 global_nav.py[AW9L]: F:全局导航：按目标层与当前层的差值选进层、脱离或同层切换，直至到达目标画面 | R:code:tasks/screen_registry.py,code:tasks/nav_planner.py | A:GlobalNavigator.navigate_to,step,_arrived | S:层级数字越小越靠外，动作按层差选择；目标不可达必须显式失败，不得静默当作成功
 goddess_trial.py[DB8L]: F:女神试炼：挑战到当前上限层，再扫荡拉满剩余奖励 | R:code:tasks/screen_registry.py,code:tasks/base.py | A:run,_detect_state,_click_exact_word | S:主判据为「今日可挑战层数上限」文本；达到上限后必须转入扫荡，否则会空转
 guild_battle.py[DB7L]: F:结社战线：先扫荡，再无限挑战循环，失败原阵容重试一次 | R:code:tasks/base.py,code:afk_bot/auto_farm/formation.py | A:run,_is_result_page,_find_exact | S:「扫荡」必须全等匹配，否则会命中「扫荡掉落」等标签；失败重试仅一次，之后计数并进入下一轮

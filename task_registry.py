@@ -1,7 +1,8 @@
 """
 任务注册表
 提供任务元数据（类级）存储、任务实例（实例级）管理与持久化。
-配置文件保存在 afk_gui.py 同目录 tasks_enabled.json。
+配置文件保存在运行期数据目录 tasks_enabled.json（v2.4.12 起：打包运行 =
+%LOCALAPPDATA%\\AFKJ自动化工具，源码运行 = 仓库根；见 app_paths.py）。
 
 v1.5.3 起支持任务多实例：同种任务可多次添加（如 auto_farm#1 / #2），
 每个实例独立配置勾选状态与结束指标（max_time / max_turns）。
@@ -11,8 +12,10 @@ v1.5.3 起支持任务多实例：同种任务可多次添加（如 auto_farm#1 
 import json
 import os
 
+import app_paths
+
 _ROOT = os.path.dirname(os.path.abspath(__file__))
-_CONFIG = os.path.join(_ROOT, "tasks_enabled.json")
+_CONFIG = app_paths.data_path("tasks_enabled.json")
 
 
 class TaskMeta:

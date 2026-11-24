@@ -50,6 +50,7 @@ SUITES = {
     'tests/test_chest_region.py': ({1, 2, 3}, False),
     'tests/test_switch_btn_region.py': ({1, 2, 3}, False),
     'tests/test_updater_net_retry.py': ({1, 2, 3}, False),
+    'tests/test_data_dir.py': ({1, 2, 3}, False),               # v2.4.12 数据目录与旧文件迁移
     'tests/test_updater_atomic_download.py': ({1, 2, 3}, False),
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -157,9 +158,11 @@ CHANGE_MAP = [
     ('tasks/auto_farm.py', ['tests/test_idle_reward_claim.py']),
     ('tasks/scheduler.py', ['tests/test_task_scheduler_smoke.py']),
     ('task_registry.py', ['tests/test_task_scheduler_smoke.py',
-                          'tests/test_gui_drawer_smoke.py']),
+                          'tests/test_gui_drawer_smoke.py',
+                          'tests/test_data_dir.py']),
     ('afk_gui.py', ['tests/test_gui_drawer_smoke.py',
-                    'tests/test_stop_hotkey.py']),
+                    'tests/test_stop_hotkey.py',
+                    'tests/test_data_dir.py']),
     ('afk_bot/services/navigator.py', ['tests/test_navigator_smoke.py',
                                        'tests/test_global_nav_matrix.py']),
     ('templates/', ['tests/test_labyrinth_v1820.py']),
@@ -180,7 +183,8 @@ CHANGE_MAP = [
                                'tests/test_startup_bind_hwnd.py']),
     ('tasks/global_nav.py', ['tests/test_startup_loading.py',
                              'tests/test_global_nav_matrix.py']),
-    ('tasks/game_launcher.py', ['tests/test_game_control_dryrun.py']),
+    ('tasks/game_launcher.py', ['tests/test_game_control_dryrun.py',
+                                'tests/test_data_dir.py']),
     ('tasks/nav_planner.py', ['tests/test_nav_planner.py',
                               'tests/test_nav_scene.py']),
     ('tasks/base.py#quit', ['tests/test_quit_dialog.py']),
@@ -191,6 +195,8 @@ CHANGE_MAP = [
     ('tasks/catalog.py', ['tests/test_task_scheduler_smoke.py',
                           'tests/test_gui_drawer_smoke.py',
                           'tests/test_task_description_consistency.py']),
+    # v2.4.12 运行期数据目录（日志/配置落 %LOCALAPPDATA%）
+    ('app_paths.py', ['tests/test_data_dir.py']),
     # v2.3.48 检查更新网络重试
     ('afk_bot/updater.py', ['tests/test_updater_net_retry.py',
                             'tests/test_updater_atomic_download.py']),

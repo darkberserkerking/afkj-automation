@@ -21,6 +21,7 @@ import win32gui
 import win32con
 import win32api
 
+import app_paths
 from afk_bot.config import LEVEL_PREFIXES
 from afk_bot.config import (VERSION, _SNAP_TRIM, _BTN_POS,
                             _BTN_POS_PORTRAIT, POPUP_EXIT_KWS)
@@ -115,10 +116,10 @@ class AFKBotCore:
             'status_callback', lambda **kw: None
         )
 
-        # ── 配置加载 ──────────────────────────────────────────
-        exe_dir: str = os.path.dirname(os.path.abspath(sys.argv[0]))
-        self.config_file: str = os.path.join(exe_dir, 'afkj_config.json')
-        self._config_dir: str = exe_dir
+        # ── 配置加载（v2.4.12：统一落运行期数据目录，不再写 exe 同目录）──
+        self._config_dir: str = app_paths.data_dir()
+        self.config_file: str = os.path.join(self._config_dir,
+                                             'afkj_config.json')
 
         # MaaOCR 引擎（全局唯一）
         from maa_ocr import MaaOCR

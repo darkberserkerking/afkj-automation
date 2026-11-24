@@ -14,7 +14,7 @@ from typing import Dict, Tuple
 import sys
 
 # ── 版本号 ──────────────────────────────────────────────────────
-VERSION: str = 'v2.4.11'
+VERSION: str = 'v2.4.12'
 
 
 # ── 礼包 / 广告类弹窗的「退出提示词」（真机 2026-11-04 用户截图）──────────
@@ -80,8 +80,9 @@ def _load_button_positions():
     """从 afkj_config.json 加载按钮比例坐标。
 
     查找策略（按优先级）：
-    1. 可执行文件所在目录（sys.argv[0]）
-    2. afk_bot 包的上级目录（__file__ 向上两级）
+    1. 运行期数据目录（v2.4.12 起，打包 = %LOCALAPPDATA%\\AFKJ自动化工具）
+    2. 可执行文件所在目录（旧版遗留位置，迁移期兼容）
+    3. afk_bot 包的上级目录（源码运行 = 仓库根）
 
     若 JSON 不存在、损坏或缺少 button_positions 节，则返回 fallback 值。
     JSON 中的坐标以 [rx, ry] 数组形式存储，加载时转换为 (rx, ry) 元组。
@@ -91,6 +92,11 @@ def _load_button_positions():
     """
     # 构建候选查找路径
     candidates: list[str] = []
+    try:
+        import app_paths
+        candidates.append(app_paths.data_path('afkj_config.json'))
+    except Exception:
+        pass
     try:
         exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         candidates.append(os.path.join(exe_dir, 'afkj_config.json'))

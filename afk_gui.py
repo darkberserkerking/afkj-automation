@@ -7,7 +7,7 @@ import traceback
 import datetime
 import collections
 
-# 1. 确定项目根目录（打包 exe = exe 所在目录，配置随 exe 持久化；源码运行 = 本文件所在目录）
+# 1. 确定项目根目录（打包 exe = exe 所在目录；源码运行 = 本文件所在目录）
 #    v2.4.9：去掉写死的本机绝对路径——源码运行时一律以 afk_gui.py 所在目录为根，
 #    否则换一份 checkout 后配置/日志仍落回旧项目目录（实测：新克隆读不到自己的 gui_config.json）。
 if getattr(sys, 'frozen', False):
@@ -15,16 +15,27 @@ if getattr(sys, 'frozen', False):
 else:
     PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 1a. 运行期数据目录（v2.4.12）
+#     写 exe 同目录不受支持（Program Files 受 UAC 保护、放桌面会污染桌面）：
+#     打包运行时统一落 %LOCALAPPDATA%\AFKJ自动化工具\，源码运行仍用仓库根。
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
+import app_paths                                            # noqa: E402
+
+DATA_DIR = app_paths.data_dir()
+# 首次升级：把旧版散在 exe 同目录的日志/配置搬进数据目录（目标已存在则不覆盖）
+app_paths.migrate_legacy()
+
 # 1b. GUI 自身设置持久化文件（v1.8.16）
-GUI_CONFIG = os.path.join(PROJECT_DIR, 'gui_config.json')
+GUI_CONFIG = os.path.join(DATA_DIR, 'gui_config.json')
 
 # 2. 崩溃日志 / stderr 落盘 / 崩溃现场快照
 #    v2.1.27（P0-2）：**stderr 与崩溃日志拆成两个文件**——此前 sys.stderr
 #    整体重定向进 CRASH_REPORT.log，实测 5,865 行里真正的崩溃只有 34 次
 #    （98% 是 "Exception in thread Thread-N" 之类普通线程噪声），
 #    导致该文件作为"排障入口"已失效。
-CRASH_LOG = os.path.join(PROJECT_DIR, "CRASH_REPORT.log")
-STDERR_LOG = os.path.join(PROJECT_DIR, "stderr.log")
+CRASH_LOG = os.path.join(DATA_DIR, "CRASH_REPORT.log")
+STDERR_LOG = os.path.join(DATA_DIR, "stderr.log")
 
 # 崩溃现场快照：环形缓冲保留最近 N 行运行日志（由 _append_log 写入），
 # 崩溃时随堆栈一起落盘——一份崩溃报告自带现场，不用再翻整份日志
@@ -131,10 +142,10 @@ from task_registry import TaskRegistry, zh_results
 from tasks.scheduler import TaskScheduler
 from tasks.catalog import TASK_CLASSES   # import 即注册全部任务类
 
-# 打包 exe 下 task_registry.__file__ 在临时解压目录 → 配置重定向到 exe 目录（v1.8.16）
+# 打包 exe 下 task_registry.__file__ 在临时解压目录 → 配置重定向到数据目录（v2.4.12）
 if getattr(sys, 'frozen', False):
     import task_registry as _tr
-    _tr._CONFIG = os.path.join(PROJECT_DIR, 'tasks_enabled.json')
+    _tr._CONFIG = os.path.join(DATA_DIR, 'tasks_enabled.json')
     TaskRegistry._CONFIG = _tr._CONFIG
 
 # ═════════════════════════════════════════════════════════════════
@@ -229,8 +240,8 @@ class App(ctk.CTk):
         # v2.2.0：窗口内有焦点时的 F12（真正的停止热键见 _bind_global_hotkeys）
         self.bind('<F12>', lambda e: self._on_hotkey_stop())
 
-        # 文件日志（追加模式，UTF-8）
-        _log_dir = PROJECT_DIR
+        # 文件日志（追加模式，UTF-8；v2.4.12 落数据目录）
+        _log_dir = DATA_DIR
         _log_path = os.path.join(_log_dir, '_afk_gui_log.txt')
         # v2.1.27（P2-8）：打开前先按大小滚动——此前永久追加、无上限
         # （实测 7 天 2.8MB；长期使用会无限增长）
