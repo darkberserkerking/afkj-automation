@@ -58,3 +58,6 @@ afk_bot/_report_token.py
 # 识别命中统计（运行期数据；源码模式 data_dir()=仓库根）
 hit_stats.jsonl
 hit_stats.jsonl.*
+
+# 运行期统计表（源码模式 data_dir()=仓库根；仓库内正式版在 docs/）
+ROI-命中统计表.md
