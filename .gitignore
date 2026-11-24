@@ -54,3 +54,7 @@ _msg.txt
 _commit_msg.txt
 # v2.4.14：构建期内置上报 token（含明文凭据，绝不入库）
 afk_bot/_report_token.py
+
+# 识别命中统计（运行期数据；源码模式 data_dir()=仓库根）
+hit_stats.jsonl
+hit_stats.jsonl.*

@@ -63,6 +63,7 @@ SUITES = {
     'tests/test_packaging_deps.py': ({1, 2, 3}, False),         # v2.4.17 Tcl/Tk DLL 版本钉死
     'tests/test_infra_speedup.py': ({1, 2, 3}, False),          # v2.4.22 roi/模板缓存/两段式
     'tests/test_roi_safety.py': ({1, 2, 3}, False),             # v2.4.22 ROI 未命中自动全屏兜底
+    'tests/test_hit_stats.py': ({1, 2, 3}, False),              # v2.4.22 命中位置采集与聚合
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -139,10 +140,16 @@ SUITES = {
 CHANGE_MAP = [
     # v2.4.22 基础设施提速（dev 分支阶段 1）：
     #   ocr_screen 开放 roi 且缓存键必须含 roi；模板解码缓存；多尺度两段式
-    ('afk_bot/infra/screen.py', ['tests/test_infra_speedup.py']),
+    ('afk_bot/infra/screen.py', ['tests/test_infra_speedup.py',
+                                 'tests/test_hit_stats.py']),
     ('afk_bot/infra/input.py', ['tests/test_infra_speedup.py',
                                 'tests/test_switch_btn_match.py',
-                                'tests/test_switch_btn_region.py']),
+                                'tests/test_switch_btn_region.py',
+                                'tests/test_hit_stats.py']),
+    ('afk_bot/infra/hit_stats.py', ['tests/test_hit_stats.py']),
+    ('afk_bot/infra/ocr_engine.py', ['tests/test_hit_stats.py']),
+    ('tasks/scheduler.py', ['tests/test_task_scheduler_smoke.py',
+                            'tests/test_hit_stats.py']),
     ('tasks/labyrinth.py', ['tests/test_labyrinth_v1820.py',
                             'tests/test_labyrinth_nav_dryrun.py',
                             'tests/test_labyrinth_full_round_dryrun.py',

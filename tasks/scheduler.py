@@ -19,6 +19,7 @@
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from afk_bot.infra import hit_stats
 from tasks.base import BaseTask
 from tasks.catalog import TASK_CLASSES
 from task_registry import TaskInstance, TaskRegistry, zh_result, zh_results
@@ -183,6 +184,8 @@ class TaskScheduler:
             self._notify(done_count, total, inst, "running")
 
             task.on_start()
+            # v2.4.22：标记当前任务，供 hit_stats 记录命中位置时带上上下文
+            hit_stats.set_task(inst.inst_id)
             started = time.time()
             try:
                 result = task.run()
@@ -197,6 +200,7 @@ class TaskScheduler:
             elapsed = int(time.time() - started)
 
             task.on_end(result)
+            hit_stats.set_task(None)
             results[inst.inst_id] = result
             done_count += 1
             self._notify(done_count, total, inst, result)
@@ -220,6 +224,14 @@ class TaskScheduler:
 
         self.results = results
         self.log(f"\n{'=' * 40}\n  全部任务结束：{zh_results(results)}\n{'=' * 40}")
+        # v2.4.22：每轮跑完自动刷新「ROI 命中统计表」（写数据目录）。
+        # 纯本地读写、毫秒级，失败也不影响调度结果。
+        try:
+            _dest = hit_stats.write_report()
+            if _dest:
+                self.log(f"[信息] 已更新识别命中统计：{_dest}")
+        except Exception:
+            pass
         return results
 
     # ── 内部辅助 ──────────────────────────────────────────

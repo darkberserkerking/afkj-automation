@@ -18,6 +18,7 @@ import numpy as np
 import pyautogui
 import win32api
 
+from afk_bot.infra import hit_stats
 from afk_bot.infra.coordinate import CoordSystem
 from afk_bot.infra.screen import ScreenCapture
 
@@ -843,6 +844,19 @@ class InputController:
                         f'best_loc=({best_loc[0]},{best_loc[1]}) '
                         f'tpl=({tpl_w}x{tpl_h})'
                     )
+                # v2.4.22：记录命中（供 tools/roi_report.py 聚合出 ROI 依据）。
+                # 用 _full_l/_full_t（客户区左上）而非 img_l/img_t —— 后者在
+                # 指定 region 时已被加上 ROI 偏移，算出来的 rel 会偏。
+                hit_stats.record_tpl(
+                    target=os.path.basename(str(tpl_path)),
+                    pos=(cx, cy),
+                    score=best_val,
+                    win_w=img_w,
+                    win_h=img_h,
+                    origin_l=_full_l,
+                    origin_t=_full_t,
+                    shape=(tpl_w, tpl_h),
+                )
                 return cx, cy
             else:
                 return None

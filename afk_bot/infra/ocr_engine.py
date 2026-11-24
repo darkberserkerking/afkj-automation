@@ -10,6 +10,8 @@ OCR 底层调用委托给 ScreenCapture，文本查找逻辑集中在此模块�
 import unicodedata
 from typing import Optional, Tuple, List, Any
 
+from afk_bot.infra import hit_stats
+
 
 class TextRecognizer:
     """OCR 文本识别引擎。
@@ -208,9 +210,25 @@ class TextRecognizer:
         Returns:
             (cx, cy) 或 None
         """
-        return self._find_text_impl(
+        pos: Optional[Tuple[int, int]] = self._find_text_impl(
             items, keyword, exact=False, min_conf=min_conf
         )
+        self._record_hit(keyword, pos)
+        return pos
+
+    def _record_hit(self, keyword: str,
+                    pos: Optional[Tuple[int, int]]) -> None:
+        """记录 OCR 命中位置（v2.4.22）。
+
+        供 tools/roi_report.py 聚合出「某段文字在画面里的位置分布」，
+        为 OCR 侧的 ROI 收窄提供依据。任何异常都吞掉，绝不影响业务。
+        """
+        if not pos:
+            return
+        try:
+            hit_stats.record_ocr(keyword, pos, 1.0)
+        except Exception:
+            pass
 
     def find_text_exact(
         self,
@@ -234,11 +252,14 @@ class TextRecognizer:
             items, keyword, exact=True, min_conf=min_conf
         )
         if pos:
+            self._record_hit(keyword, pos)
             return pos
         # fallback: partial match
-        return self._find_text_impl(
+        pos = self._find_text_impl(
             items, keyword, exact=False, min_conf=min_conf
         )
+        self._record_hit(keyword, pos)
+        return pos
 
     def find_text_exclude(
         self,

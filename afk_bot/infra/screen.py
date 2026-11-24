@@ -22,6 +22,7 @@ import win32con
 import win32api
 import win32process
 
+from afk_bot.infra import hit_stats
 from afk_bot.infra.coordinate import CoordSystem
 
 
@@ -543,8 +544,20 @@ class ScreenCapture:
         Returns:
             [(cy, cx, text, conf, x_min, x_max), ...] 按 cy 排序
         """
+        _win_l: int = 0
+        _win_t: int = 0
+        _win_w: int = 0
+        _win_h: int = 0
         if img is None:
-            img, _, _, _, _ = self.snap()
+            img, _win_l, _win_t, _win_w, _win_h = self.snap()
+        else:
+            _win_w, _win_h = img.width, img.height
+        # v2.4.22：把窗口几何登记给 hit_stats —— OCR 的 find_text 是纯函数，
+        # 记录命中位置时靠它补上下文（见 hit_stats.set_window）
+        try:
+            hit_stats.set_window(_win_w, _win_h, _win_l, _win_t)
+        except Exception:
+            pass
         # v1.9.37：空截图（窗口最小化等）→ 跳过本帧 OCR，返回空结果
         #（任务层按未知画面走正常等待/重试链路，不崩）
         if img.width <= 0 or img.height <= 0:
