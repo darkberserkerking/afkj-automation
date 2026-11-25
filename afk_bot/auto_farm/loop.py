@@ -783,6 +783,73 @@ class AFKBotCore:
 
     # ── 主循环 ────────────────────────────────────────────────
 
+    def _check_stuck_and_recover(self) -> bool:
+        """卡住检测与恢复（v2.4.26）。
+
+        **为什么补这个**：`stuck` 配置（sample_interval/threshold/
+        max_recovery_attempts）与 `facade._try_recover_from_stuck()` 都早就
+        写好了，但**主循环从未调用**，是死代码。于是低配机器上游戏卡死时，
+        程序只会每 5 秒重复点同一个按钮（真机 2026-11-25 21:49:56~21:50:07
+        连点 3 次「玩法目录」，画面分毫未动）。
+
+        **判据为什么用画面指纹而不是点击坐标**：切换阵容时会正常连点 6 次
+        同一个 `>` 按钮，按坐标判据必然误判；而画面指纹在正常流程里每轮都会
+        因点击/转场而变化，只有真卡住才会长时间完全不动。
+
+        Returns:
+            True = 已触发恢复，调用方应 continue 重开一轮
+        """
+        try:
+            fp: int = self._screen_capture.frame_fingerprint()
+        except Exception:
+            return False
+
+        if self._stuck_fp != fp:
+            # 画面变了 = 正常推进
+            self._stuck_fp = fp
+            self._stuck_count = 0
+            return False
+
+        self._stuck_count += 1
+        cfg: Dict[str, Any] = self._cfg.get('stuck', {}) or {}
+        threshold: int = int(cfg.get('threshold', 10) or 10)
+        max_rec: int = int(cfg.get('max_recovery_attempts', 3) or 3)
+        if self._stuck_count < threshold:
+            return False
+
+        n: int = self._stuck_count
+        self._stuck_count = 0
+        self._stuck_fp = None
+
+        if self._stuck_recoveries >= max_rec:
+            # 恢复次数用完就不再动手：反复 ESC 可能把正常流程彻底搅乱，
+            # 交给用户判断（日志已明确提示）
+            self._log(
+                'warn',
+                f'画面已连续 {n} 轮无变化，但本任务已恢复 '
+                f'{max_rec} 次，不再自动恢复 —— '
+                '请检查游戏是否卡死/断网/掉帧'
+            )
+            return False
+
+        self._stuck_recoveries += 1
+        self._log(
+            'warn',
+            f'画面连续 {n} 轮无变化 → 判定卡住，'
+            f'尝试恢复（{self._stuck_recoveries}/{max_rec}）'
+        )
+        try:
+            self._screen_capture.debug_screenshot('stuck')
+        except Exception:
+            pass
+        try:
+            self._navigator.esc_to_level0()
+            self._stop_event.wait(1)
+            self._navigator.navigate_to_idle_stage()
+        except Exception as e:
+            self._log('warn', f'卡住恢复执行失败：{e}')
+        return True
+
     def _run_main_loop(self) -> None:
         """统一的主循环逻辑（v1.5.0：仅交替模式 + 逐次战斗）。
 
@@ -797,6 +864,10 @@ class AFKBotCore:
         # 首次循环标志：启动时若在结算界面（result），_handle_common_phase
         # 处理后会误判 _pending_defeat（把胜利当失败计数+换阵），首次循环排除
         self._first_loop: bool = True
+        # v2.4.26：卡住检测状态（stuck 配置与恢复逻辑此前是死代码）
+        self._stuck_fp: Optional[int] = None
+        self._stuck_count: int = 0
+        self._stuck_recoveries: int = 0
         # 推荐阵容用完标志：进入 formation 阶段时检测 > 按钮是否存在；
         # defeat 分支据此立即切换挑战模式（v1.5.0：唯一切换依据）
         self._formation_exhausted: bool = False
@@ -872,6 +943,10 @@ class AFKBotCore:
         while not self._stop:
             self._pause.wait()
             self._check_network_disconnect()
+
+            # v2.4.26：卡住检测（低配机器/游戏卡死时不能傻点）
+            if self._check_stuck_and_recover():
+                continue
 
             # v2.3.1：礼包/广告弹窗可能出现在**任何界面**（含战斗/结算中）
             # → 不看 phase，每轮先扫一眼（只认「点击屏幕退出」类，不碰结算的「点击空白处」✗）

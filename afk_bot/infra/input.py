@@ -284,9 +284,10 @@ class InputController:
         """
         self._screen_capture.activate_window()
         pyautogui.click(cx, cy)
-        # v2.4.25：点击已改变画面 → 作废 OCR 缓存。
-        # 否则下一轮会读到点击**之前**的旧识别结果，表现为「点了没反应、
-        # 反复点同一处」（真机 2026-11-25 21:49:56 连续 3 轮点「玩法目录」）。
+        # v2.4.25：点击已改变画面 → 作废 OCR 缓存，避免下一轮读到点击**前**
+        # 的旧识别结果（缓存指纹只有 10 个采样点，小面积变化不改指纹）。
+        # 注意：它不解决「游戏卡住」——那种情况画面确实没变，重跑结果一样，
+        # 由主循环 _check_stuck_and_recover() 负责。
         try:
             self._screen_capture.invalidate_ocr_cache()
         except Exception:

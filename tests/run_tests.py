@@ -67,6 +67,7 @@ SUITES = {
     'tests/test_log_modes.py': ({1, 2, 3}, False),              # v2.4.24 日志简略/详细双视图
     'tests/test_log_and_cache_fix.py': ({1, 2, 3}, False),      # v2.4.25 日志前缀去重 + 点击后缓存失效
     'tests/test_stage_stats.py': ({1, 2, 3}, False),            # v2.4.25 关卡统计不因切模式归零
+    'tests/test_stuck_detect.py': ({1, 2, 3}, False),           # v2.4.26 卡住检测与恢复
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -169,7 +170,8 @@ CHANGE_MAP = [
                                    'tests/test_rec_empty_switch.py',
                                    'tests/test_auto_farm_stop_residue.py',
                                    'tests/test_log_and_cache_fix.py',
-                                   'tests/test_stage_stats.py']),
+                                   'tests/test_stage_stats.py',
+                                   'tests/test_stuck_detect.py']),
     ('afk_bot/updater.py', ['tests/test_updater_verify.py']),
     ('afk_bot/auto_farm/formation.py',
      ['tests/test_challenge_btn_verify.py',
