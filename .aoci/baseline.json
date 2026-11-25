@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T01:56:21Z",
-  "updated_at": "2026-11-25T18:34:44Z",
+  "updated_at": "2026-11-25T18:54:09Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -76,9 +76,9 @@
     },
     "afk_bot/auto_farm/loop.py": {
       "role": "index",
-      "sha256": "5017a9cca10f2631c0ecd5fc27398abdf8d655985080c45baf2fdd9550072e99",
-      "size": 96473,
-      "normalized_sha256": "5ac5438b02369c9e2ab3e36bba2641cf3e862566c3ab5124e40bf33c9832c36f"
+      "sha256": "8893b8ae99604d6c470d8afe493a165568cd6280637e65a62c0e87f7e8439f69",
+      "size": 99600,
+      "normalized_sha256": "a132094efe54edd06c2ccfe51b66fadf1305484bcdbee51f007b356823d64525"
     },
     "afk_bot/bug_report.py": {
       "role": "index",
@@ -88,9 +88,9 @@
     },
     "afk_bot/config.py": {
       "role": "index",
-      "sha256": "809c1918a09f4c8174e31d9cbc6cb827de86539261a5014373b7bc4cc864f1fa",
+      "sha256": "6960984ef6875dc015333286ca248cb96fb2cb4196372759d5b903f7c97e4d45",
       "size": 7877,
-      "normalized_sha256": "809c1918a09f4c8174e31d9cbc6cb827de86539261a5014373b7bc4cc864f1fa"
+      "normalized_sha256": "6960984ef6875dc015333286ca248cb96fb2cb4196372759d5b903f7c97e4d45"
     },
     "afk_bot/facade.py": {
       "role": "index",
@@ -118,9 +118,9 @@
     },
     "afk_bot/infra/input.py": {
       "role": "index",
-      "sha256": "961fe4b785143a171549146744a2b2c84508efa57bff8793adfbe77c0860040d",
-      "size": 40609,
-      "normalized_sha256": "a1aa1ec24803bcf9dd90a3468c0030291c3de52e866ea7ce1deb7305bfc4b452"
+      "sha256": "32feaf0b7e2e84c77caa3e6f45efb45a1cd793995dbeaa1e0d7a1b5d6a7c4e52",
+      "size": 40713,
+      "normalized_sha256": "2c2d1bdc8667a0e1790b214ae6a3a9158f76477ca7f343e4d13b0f96955afa5f"
     },
     "afk_bot/infra/ocr_engine.py": {
       "role": "index",
@@ -136,9 +136,9 @@
     },
     "afk_bot/infra/screen.py": {
       "role": "index",
-      "sha256": "98db04f26d1b0efaf07f42fb6e019d7209a7300c16644a995dfd58485022a8a9",
-      "size": 30757,
-      "normalized_sha256": "b77e1d68a4946afdf19d8bfcde764897f3149f0793526ac6f11f67f448d00ded"
+      "sha256": "8a23fa84a27e5287b0b5d5923d3b45ca405b754e1e9531eae688dc1bba4973f2",
+      "size": 30999,
+      "normalized_sha256": "3ed48603de42f5082b78cb29b7b3de2bd7b39e5c6540135750155d769a151bc2"
     },
     "afk_bot/infra/stats.py": {
       "role": "index",
@@ -195,9 +195,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "8ddb50535113f8fe791a99f405dd16f60d4001c5e5c1dbe1cee07d08776cc636",
-      "size": 35244,
-      "normalized_sha256": "8ddb50535113f8fe791a99f405dd16f60d4001c5e5c1dbe1cee07d08776cc636"
+      "sha256": "154baac47fde27cbcf0eaaa1ad0dab768393f1c7f3e43d7feda276435da75d6a",
+      "size": 35409,
+      "normalized_sha256": "154baac47fde27cbcf0eaaa1ad0dab768393f1c7f3e43d7feda276435da75d6a"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -907,9 +907,9 @@
     },
     "tests/run_tests.py": {
       "role": "observe",
-      "sha256": "9036f86f360322c4891cf184689fedf9d6dc42d93874bfdd36bbd02899a4f964",
-      "size": 24196,
-      "normalized_sha256": "9036f86f360322c4891cf184689fedf9d6dc42d93874bfdd36bbd02899a4f964"
+      "sha256": "21d7eb06f0ba4cc21e6528fc2cf24adf8443e39c737e7d40b2b37afd35d3a6ef",
+      "size": 24357,
+      "normalized_sha256": "21d7eb06f0ba4cc21e6528fc2cf24adf8443e39c737e7d40b2b37afd35d3a6ef"
     },
     "tests/test_afk_limit_confirm.py": {
       "role": "observe",
@@ -1360,6 +1360,12 @@
       "sha256": "663b492fec225061de784e1fd145b1a88958b4b4e74078dbcfa27ff19e17c36d",
       "size": 5996,
       "normalized_sha256": "ba9d6982d7df0b4a1a5e12042ddd9f16b19f19a97bb5a4ace54fe0348a3cd623"
+    },
+    "tests/test_stuck_detect.py": {
+      "role": "observe",
+      "sha256": "2fe05cad8ea3fcedb6cf78804c0346397f112cfc20f43383c1bc8367579a0786",
+      "size": 6240,
+      "normalized_sha256": "2fe05cad8ea3fcedb6cf78804c0346397f112cfc20f43383c1bc8367579a0786"
     },
     "tests/test_switch_btn_match.py": {
       "role": "observe",
