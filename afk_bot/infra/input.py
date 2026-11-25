@@ -284,6 +284,13 @@ class InputController:
         """
         self._screen_capture.activate_window()
         pyautogui.click(cx, cy)
+        # v2.4.25：点击已改变画面 → 作废 OCR 缓存。
+        # 否则下一轮会读到点击**之前**的旧识别结果，表现为「点了没反应、
+        # 反复点同一处」（真机 2026-11-25 21:49:56 连续 3 轮点「玩法目录」）。
+        try:
+            self._screen_capture.invalidate_ocr_cache()
+        except Exception:
+            pass
 
     # ── 图像坐标点击 ────────────────────────────────────────────
 
@@ -300,6 +307,11 @@ class InputController:
                 int(y0 + (y1 - y0) * i / steps),
                 duration=duration / steps)
         pyautogui.mouseUp(button='left')
+        # v2.4.25：拖拽同样改变画面 → 作废 OCR 缓存（同 click_abs）
+        try:
+            self._screen_capture.invalidate_ocr_cache()
+        except Exception:
+            pass
         time.sleep(0.3)
 
     def wait_after_click(self, max_wait: float = 0.5,
@@ -598,6 +610,11 @@ class InputController:
         time.sleep(0.1)
         win32api.keybd_event(0x1B, 0, 0, 0)
         win32api.keybd_event(0x1B, 0, 2, 0)
+        # v2.4.25：ESC 会退一层界面 → 作废 OCR 缓存（同 click_abs）
+        try:
+            self._screen_capture.invalidate_ocr_cache()
+        except Exception:
+            pass
         time.sleep(0.05)
 
     def send_key_f(self, label: str = '') -> None:
@@ -616,6 +633,11 @@ class InputController:
         time.sleep(0.1)
         win32api.keybd_event(0x46, 0, 0, 0)
         win32api.keybd_event(0x46, 0, 2, 0)
+        # v2.4.25：F 键开始战斗 → 画面必然切换，作废 OCR 缓存
+        try:
+            self._screen_capture.invalidate_ocr_cache()
+        except Exception:
+            pass
         time.sleep(0.05)
 
     def press_esc(self, label: str = '') -> None:

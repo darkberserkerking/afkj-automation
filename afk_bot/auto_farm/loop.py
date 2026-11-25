@@ -297,8 +297,16 @@ class AFKBotCore:
         if not getattr(self, '_verbose', True) and msg.startswith('ℹ️'):
             return
         # v1.8.49：改用中性层单一真相源（此前本地重复一份，易漂移）
+        # v2.4.25：消息已自带级别标志时不再叠加前缀。
+        # 此前多处以 `_log('info', '[信息] xxx')` 调用（既传 level 又手写前缀），
+        # 输出成「[信息] [信息] xxx」——真机日志实测 28 行，且会污染
+        # GUI 的 tag 着色（按首个 [..] 分词）。此处与 tasks/base.py::log
+        # 的既有规则对齐；`[自动推图]`/`[暂停]` 这类业务标签不是级别前缀，
+        # 仍然正常叠加，格式不变。
         prefix: str = LEVEL_PREFIXES.get(level, '[信息]')
-        self.log(f'{prefix} {msg}')
+        if not any(msg.startswith(p) for p in LEVEL_PREFIXES.values()):
+            msg = f'{prefix} {msg}'
+        self.log(msg)
 
     # ── 停止/暂停检查回调 ────────────────────────────────────
 
@@ -1100,18 +1108,9 @@ class AFKBotCore:
                 # 这里不重置：_pending_defeat 块需要读取上一轮 prepare 后的值，
                 # 统一在 _pending_defeat 块处理完后、prepare 前重置。
 
-                hl, nm = self._detect_season_stages()
-                if hl > 0:
-                    stats['huanling_stage'] = hl
-                if nm > 0:
-                    stats['normal_stage'] = nm
-                if hl > 0 or nm > 0:
-                    stats['current_stage'] = max(hl or 0, nm or 0)
-                    self._log(
-                        'info',
-                        f'[数据] 当前关卡: {stats["current_stage"]}'
-                        f'（幻灵:{hl}, 挂机:{nm}）'
-                    )
+                # v2.4.25：改用公共方法 —— 此前这里只用本次读数算最大值，
+                # 切到另一模式后界面上读不到原模式 → 数字「归零」。
+                self._refresh_stage_stats()
 
                 self._push_stats()
 
@@ -1473,7 +1472,14 @@ class AFKBotCore:
                     continue
 
                 unknown_count += 1
-                self._log('warn', f'未知阶段（{unknown_count}/3）')
+                # v2.4.25：连续未知的前两次多为正常转场（战斗动画/加载），
+                # 用 info；只有到第 3 次要触发导航时才 warn。
+                # 真机日志里「[警告] 未知阶段（1/3）」出现 13 次，属噪音——
+                # 用户看到警告会以为出了故障。
+                self._log(
+                    'warn' if unknown_count >= 3 else 'info',
+                    f'未知阶段（{unknown_count}/3）'
+                )
 
                 if unknown_count >= 3:
                     self._log(
@@ -2074,6 +2080,42 @@ class AFKBotCore:
 
     # ── 推进检测辅助 ──────────────────────────────────────────
 
+    def _refresh_stage_stats(self) -> None:
+        """刷新关卡统计（v2.4.25：两处调用共用，杜绝实现漂移）。
+
+        **读不到某模式的关卡时必须保留上次已知值**。
+        切换挑战类型后，界面上只显示当前模式的数字，另一个模式读数为 0；
+        若直接拿本次读数算最大值，就会把已知进度覆盖成 0 ——
+        表现正是用户观察到的「关卡归零」：
+
+            01:20:40 当前关卡: 589（幻灵:589, 挂机:0）
+            ... 推荐阵容用完 → 切换到 normal ...
+            01:22:01 当前关卡: 307（幻灵:0, 挂机:307）   ← 幻灵的 589 丢了
+
+        幻灵与挂机是**两套独立进度**（游戏内各自计算），本方法分别保存
+        `huanling_stage` / `normal_stage`，展示值取两者已知的最大值，
+        因此数字只会在真正推进时变大，不会因切模式而回退。
+        """
+        stats: Dict[str, Any] = self.stats
+        hl, nm = self._detect_season_stages()
+        if hl > 0:
+            stats['huanling_stage'] = hl
+        if nm > 0:
+            stats['normal_stage'] = nm
+        if hl <= 0 and nm <= 0:
+            return
+        # 本次读不到的，用历史已知值兜底
+        display_hl: int = int(hl if hl > 0
+                              else (stats.get('huanling_stage') or 0))
+        display_nm: int = int(nm if nm > 0
+                              else (stats.get('normal_stage') or 0))
+        stats['current_stage'] = max(display_hl, display_nm)
+        self._log(
+            'info',
+            f'[数据] 当前关卡: {stats["current_stage"]}'
+            f'（幻灵:{display_hl}, 挂机:{display_nm}）'
+        )
+
     def _record_pre_battle_stage(
         self, current_mode: str, mode_prev_stage: Dict[str, int]
     ) -> None:
@@ -2083,22 +2125,8 @@ class AFKBotCore:
             current_mode: 当前模式 — 'huanling' 或 'normal'
             mode_prev_stage: 用于战后计算推进数的字典
         """
+        self._refresh_stage_stats()
         stats: Dict[str, Any] = self.stats
-        hl, nm = self._detect_season_stages()
-        if hl > 0:
-            stats['huanling_stage'] = hl
-        if nm > 0:
-            stats['normal_stage'] = nm
-        if hl > 0 or nm > 0:
-            display_hl: int = hl if hl > 0 else stats.get('huanling_stage', 0)
-            display_nm: int = nm if nm > 0 else stats.get('normal_stage', 0)
-            stats['current_stage'] = max(hl, nm, display_hl, display_nm)
-            self._log(
-                'info',
-                f'[数据] 当前关卡: {stats["current_stage"]}'
-                f'（幻灵:{display_hl}, 挂机:{display_nm}）'
-            )
-
         if current_mode == 'huanling':
             mode_prev_stage['huanling'] = stats.get('huanling_stage', 0)
         else:

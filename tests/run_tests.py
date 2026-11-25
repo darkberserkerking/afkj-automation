@@ -65,6 +65,8 @@ SUITES = {
     'tests/test_roi_safety.py': ({1, 2, 3}, False),             # v2.4.22 ROI 未命中自动全屏兜底
     'tests/test_hit_stats.py': ({1, 2, 3}, False),              # v2.4.22 命中位置采集与聚合
     'tests/test_log_modes.py': ({1, 2, 3}, False),              # v2.4.24 日志简略/详细双视图
+    'tests/test_log_and_cache_fix.py': ({1, 2, 3}, False),      # v2.4.25 日志前缀去重 + 点击后缓存失效
+    'tests/test_stage_stats.py': ({1, 2, 3}, False),            # v2.4.25 关卡统计不因切模式归零
     'tests/test_updater_lock_retry.py': ({1, 2, 3}, False),     # v2.4.18 目标被占用时重试覆盖
     'tests/test_updater_diag.py': ({1, 2, 3}, False),
     'tests/test_status_display_chain.py': ({1, 2, 3}, True),  # Tk 独占
@@ -142,11 +144,13 @@ CHANGE_MAP = [
     # v2.4.22 基础设施提速（dev 分支阶段 1）：
     #   ocr_screen 开放 roi 且缓存键必须含 roi；模板解码缓存；多尺度两段式
     ('afk_bot/infra/screen.py', ['tests/test_infra_speedup.py',
-                                 'tests/test_hit_stats.py']),
+                                 'tests/test_hit_stats.py',
+                                 'tests/test_log_and_cache_fix.py']),
     ('afk_bot/infra/input.py', ['tests/test_infra_speedup.py',
                                 'tests/test_switch_btn_match.py',
                                 'tests/test_switch_btn_region.py',
-                                'tests/test_hit_stats.py']),
+                                'tests/test_hit_stats.py',
+                                'tests/test_log_and_cache_fix.py']),
     ('afk_bot/infra/hit_stats.py', ['tests/test_hit_stats.py']),
     ('afk_bot/infra/ocr_engine.py', ['tests/test_hit_stats.py']),
     ('tasks/scheduler.py', ['tests/test_task_scheduler_smoke.py',
@@ -163,7 +167,9 @@ CHANGE_MAP = [
     ('afk_bot/auto_farm/loop.py', ['tests/test_afk_limit_confirm.py',
                                    'tests/test_battle_count_consistency.py',
                                    'tests/test_rec_empty_switch.py',
-                                   'tests/test_auto_farm_stop_residue.py']),
+                                   'tests/test_auto_farm_stop_residue.py',
+                                   'tests/test_log_and_cache_fix.py',
+                                   'tests/test_stage_stats.py']),
     ('afk_bot/updater.py', ['tests/test_updater_verify.py']),
     ('afk_bot/auto_farm/formation.py',
      ['tests/test_challenge_btn_verify.py',
