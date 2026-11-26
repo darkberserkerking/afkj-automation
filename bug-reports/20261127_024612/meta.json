@@ -1,0 +1,22 @@
+{
+  "time": "2026-11-27 02:46:13",
+  "version": "v2.4.26",
+  "task": "arena#1",
+  "exception": "",
+  "traceback": "",
+  "screenshot_ok": true,
+  "screenshot_error": "",
+  "hwnd": 200156,
+  "window_rect": [
+    89,
+    322,
+    1369,
+    1346
+  ],
+  "os": "Windows 11 10.0.26200",
+  "python": "3.12.13",
+  "frozen": true,
+  "cwd": "C:\\Users\\x9502\\Desktop",
+  "extra": {},
+  "log_lines": 20
+}
