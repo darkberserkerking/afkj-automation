@@ -21,6 +21,7 @@
 """
 
 from typing import Callable, List, Tuple
+from tasks.text_conf import OCR_SCREEN_CONF, OCR_HOME_BTN_CONF
 
 # ── 判据词表（单一真相源；任务模块从这里导入使用）──────────────
 # v1.8.8：推图副本特征词（命中任一 → 非迷宫内部，脱离处理）
@@ -87,7 +88,8 @@ GODDESS_AUTOCHECK_MARK: str = '自动挑战'
 GODDESS_SECRET_MARK: str = '秘藏'
 
 
-def _texts(items: List[Tuple], conf: float = 0.5) -> List[str]:
+def _texts(items: List[Tuple],
+           conf: float = OCR_SCREEN_CONF) -> List[str]:
     """OCR items → 文本列表（6 元组 (cy, cx, text, conf, x0, x1)）。"""
     return [
         it[2] for it in items if len(it) >= 4 and it[3] >= conf
@@ -99,7 +101,7 @@ def _texts(items: List[Tuple], conf: float = 0.5) -> List[str]:
 def _has_home_btn(items: List[Tuple]) -> bool:
     """世界场景右下角「家园」切换按钮（rx>0.85, ry 0.80~0.95）。"""
     for it in items:
-        if (len(it) >= 4 and it[3] >= 0.8
+        if (len(it) >= 4 and it[3] >= OCR_HOME_BTN_CONF
                 and it[2].strip() == "家园"
                 and it[1] / 1280.0 > 0.85
                 and 0.80 < it[0] / 1024.0 < 0.95):

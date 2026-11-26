@@ -147,12 +147,15 @@ try:
     check('A1 _find_challenge 命中真机 0.78 的「挑战！」→ (854,753)',
           t._find_challenge(FLOOR_REAL) == (854, 753),
           str(t._find_challenge(FLOOR_REAL)))
-    old = t._find_exact(FLOOR_REAL, tq._CHALLENGE_WORD, tq._BTN_MIN_CONF)
+    # v2.4.7：_BTN_MIN_CONF 死常量已删除；旧阈值作为历史事实内联保留，
+    # 行为分叉（0.78 帧在 0.85 下必漏检）仍要锁死，防止阈值被调回去。
+    _OLD_BTN_CONF = 0.85
+    old = t._find_exact(FLOOR_REAL, tq._CHALLENGE_WORD, _OLD_BTN_CONF)
     check('A2 旧阈值 0.85 确实漏检（锁死改版理由）', old is None, str(old))
     check('A3 新阈值已放宽到 0.6 且与 _GO_MIN_CONF 同依据',
           tq._CHALLENGE_MIN_CONF == 0.6
-          and tq._CHALLENGE_MIN_CONF < tq._BTN_MIN_CONF,
-          f'{tq._CHALLENGE_MIN_CONF} < {tq._BTN_MIN_CONF}')
+          and tq._CHALLENGE_MIN_CONF < _OLD_BTN_CONF,
+          f'{tq._CHALLENGE_MIN_CONF} < {_OLD_BTN_CONF}')
 except Exception as _e:
     check('A 行为分叉', False, repr(_e))
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import time
 from typing import List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF, OCR_SCREEN_CONF
 
 from tasks.base import BaseTask
 from task_registry import TaskMeta, TaskRegistry
@@ -158,7 +159,7 @@ class GuildBattleTask(BaseTask):
     # ── 工具 ────────────────────────────────────────────────
 
     def _find_exact(self, items: List[Tuple], word: str,
-                    min_conf: float = 0.6
+                    min_conf: float = OCR_TARGET_CONF
                     ) -> Optional[Tuple[int, int]]:
         """**全等**匹配（避免「扫荡掉落」这类标签被当成按钮）。"""
         for it in items:
@@ -168,7 +169,7 @@ class GuildBattleTask(BaseTask):
         return None
 
     def _find_any(self, items: List[Tuple], words: Tuple[str, ...],
-                  min_conf: float = 0.6
+                  min_conf: float = OCR_TARGET_CONF
                   ) -> Optional[Tuple[int, int]]:
         for w in words:
             pos = self._find_exact(items, w, min_conf)
@@ -205,8 +206,10 @@ class GuildBattleTask(BaseTask):
         """
         if not any('结社战线' in t for t in texts):
             return False
-        return bool(self._find_exact(items, _SWEEP_WORD, 0.7)
-                    or self._find_exact(items, '挑战', 0.7))
+        return bool(self._find_exact(items, _SWEEP_WORD,
+                                    OCR_TARGET_CONF)
+                    or self._find_exact(items, '挑战',
+                                       OCR_TARGET_CONF))
 
     def _cands(self, items: List[Tuple]) -> str:
         """诊断：打印范围内候选项（找不到按钮时附带证据）。"""
@@ -238,7 +241,8 @@ class GuildBattleTask(BaseTask):
                 return False
             items = self.bot._ocr_screen()
             texts = self._texts(items)
-            pos = self._find_any(items, (word,), min_conf=0.85)
+            pos = self._find_any(items, (word,),
+                                min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], tag)
                 self._sleep(2.5)
@@ -282,7 +286,8 @@ class GuildBattleTask(BaseTask):
         for _ in range(3):
             if self.check_stop():
                 return
-            pos = self._find_exact(items, _SWEEP_WORD, min_conf=0.7)
+            pos = self._find_exact(items, _SWEEP_WORD,
+                                  min_conf=OCR_TARGET_CONF)
             if not pos:
                 self.log("[信息] 主界面无「扫荡」按钮（可能无次数）→ 跳过扫荡")
                 return
@@ -311,13 +316,15 @@ class GuildBattleTask(BaseTask):
     def _setup_lineup(self) -> None:
         """备战界面：通关阵容 → 一键采用（只在"需要重设阵容"时调用）。"""
         # ① 通关阵容
-        pos = self._find_exact(self.bot._ocr_screen(), '通关阵容', 0.7)
+        pos = self._find_exact(self.bot._ocr_screen(), '通关阵容',
+                               OCR_TARGET_CONF)
         if pos:
             self.log(f"[点击] 「通关阵容」 | 图像=({pos[0]},{pos[1]})")
             self.bot.click_at(pos[0], pos[1], '备战_通关阵容')
             self._sleep(1.5)
         # ② 一键采用（阵容选择弹窗内）
-        pos2 = self._find_exact(self.bot._ocr_screen(), '一键采用', 0.7)
+        pos2 = self._find_exact(self.bot._ocr_screen(), '一键采用',
+                                OCR_TARGET_CONF)
         if pos2:
             self.log(f"[点击] 「一键采用」 | 图像=({pos2[0]},{pos2[1]})")
             self.bot.click_at(pos2[0], pos2[1], '备战_一键采用')
@@ -359,7 +366,7 @@ class GuildBattleTask(BaseTask):
             # ⓪' 礼包/广告弹窗可能出现在**任何界面**（含战斗中）
             #     → 不看状态，每轮先扫一眼；只认「点击屏幕退出」类 ✗（不碰结算的「点击空白处」）
             _popup = self._find_any(items, ('点击屏幕退出', '点击任意处',
-                                            '点击任意位置'), min_conf=0.5)
+                                            '点击任意位置'), min_conf=OCR_SCREEN_CONF)
             if _popup:
                 self.log(f"[点击] 礼包弹窗「点击屏幕退出」| ({_popup[0]},{_popup[1]})")
                 self.bot.click_at(_popup[0], _popup[1], '结社战线_礼包弹窗退出')
@@ -369,7 +376,8 @@ class GuildBattleTask(BaseTask):
 
             # ⓪ 战斗进行中：实测战斗页有文本「跳过」(886,832) → 点它直接结算；
             #    没有「跳过」时（按钮可能隐藏）**耐心等待**，不计入 stall
-            _skip = self._find_exact(items, _SKIP_WORD, 0.7)
+            _skip = self._find_exact(items, _SKIP_WORD,
+                                    OCR_TARGET_CONF)
             if _skip:
                 self.log(f"[点击] 「跳过」 | 图像=({_skip[0]},{_skip[1]})")
                 self.bot.click_at(_skip[0], _skip[1], '结社战线_跳过')
@@ -408,7 +416,8 @@ class GuildBattleTask(BaseTask):
                 _hit_word: Optional[str] = None
                 _hit_pos: Optional[Tuple[int, int]] = None
                 for _w in (_primary, _backup):
-                    _p = self._find_exact(items, _w, 0.7)
+                    _p = self._find_exact(items, _w,
+                                          OCR_TARGET_CONF)
                     if _p:
                         _hit_word, _hit_pos = _w, _p
                         break
@@ -456,7 +465,8 @@ class GuildBattleTask(BaseTask):
 
             # ③ 结社战线主界面：点「挑战」（标题+按钮双判据，避免撞公会玩法目录）
             if self._is_main(items, texts):
-                pos = self._find_any(items, _BATTLE_WORDS, min_conf=0.7)
+                pos = self._find_any(items, _BATTLE_WORDS,
+                                    min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.log(f"[点击] 「挑战」 | 图像=({pos[0]},{pos[1]})")
                     self.bot.click_at(pos[0], pos[1], '结社战线_挑战')

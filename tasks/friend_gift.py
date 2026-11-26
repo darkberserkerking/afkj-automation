@@ -21,7 +21,8 @@
 ────────────────────────────────────────────
 """
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 from task_registry import TaskRegistry, TaskMeta
 from tasks.base import BaseTask
@@ -76,11 +77,25 @@ class FriendGiftTask(BaseTask):
                     return True
         return False
 
+    def _find_gift_btn(self, items: List[Tuple]
+                      ) -> Optional[Tuple[int, int]]:
+        """「一键赠礼」按钮定位——**判定与点击共用本函数**。
+
+        v2.4.7：此前判定走 _texts() 的画面级阈值（0.5）、点击走
+        find_text 的旧按钮阈值 0.8，真机 conf 落在两者之间时会出现
+        「判得出是好友页、却点不到按钮」→ 直接 return done 假成功。
+        """
+        for it in items:
+            if (len(it) >= 4 and it[3] >= OCR_TARGET_CONF
+                    and '一键赠礼' in str(it[2])):
+                return (int(it[1]), int(it[0]))
+        return None
+
     def _on_friend_page(self, items: List[Tuple]) -> bool:
         """好友界面判定：收礼进度 / 一键赠礼并收取 / 好友页签。"""
         texts = self._texts(items)
         return (any('收礼进度' in t for t in texts)
-                or any('一键赠礼' in t for t in texts))
+                or self._find_gift_btn(items) is not None)
 
     def startup_probe(self) -> str:
         items = self.bot._ocr_screen()
@@ -142,7 +157,7 @@ class FriendGiftTask(BaseTask):
             if self.check_stop():
                 return self._stop_result()
             items = self.bot._ocr_screen()
-            pos = self.bot.find_text(items, '一键赠礼', min_conf=0.8)
+            pos = self._find_gift_btn(items)
             if not pos:
                 if self._dismiss_reward_popup(items):
                     continue

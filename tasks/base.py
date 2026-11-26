@@ -8,6 +8,9 @@ import time
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from tasks.text_conf import (
+    OCR_SCREEN_CONF, OCR_QUIT_CONF,
+)
 # v1.8.49：优先复用中性层单一真相源；但 afk_bot/__init__ 存在反向
 # import tasks（见审查报告 P0-1），顶层直连会成环 → try 失败时本地兜底
 try:
@@ -316,7 +319,7 @@ class BaseTask(ABC):
         return 'stopped'
 
     def _texts(self, items: List[Tuple],
-               min_conf: float = 0.5) -> List[str]:
+               min_conf: float = OCR_SCREEN_CONF) -> List[str]:
         """从 OCR items 提取文本列表（此前 5 个任务类各写一份）。"""
         return [it[2] for it in items
                 if len(it) >= 4 and it[3] >= min_conf]
@@ -449,7 +452,7 @@ class BaseTask(ABC):
             if not hasattr(self.bot, "_ocr_screen"):
                 return False
             items = self.bot._ocr_screen()
-        hit = any(len(it) >= 4 and it[3] >= 0.8
+        hit = any(len(it) >= 4 and it[3] >= OCR_QUIT_CONF
                   and self._QUIT_DLG_KW in it[2] for it in items)
         if not hit:
             return False
@@ -464,7 +467,7 @@ class BaseTask(ABC):
             return True
         # ② 锚点兜底（弹窗文字左下方）
         anchor = next(((it[1], it[0]) for it in items
-                       if len(it) >= 4 and it[3] >= 0.8
+                       if len(it) >= 4 and it[3] >= OCR_QUIT_CONF
                        and self._QUIT_DLG_KW in it[2]), None)
         if anchor:
             x = int(anchor[0] - 0.264 * 1280)
@@ -508,7 +511,8 @@ class BaseTask(ABC):
             return True
         def _try_hit(_items) -> bool:
             for _kw in self._BLINK_POPUP_KWS:
-                _pos = self.bot.find_text(_items, _kw, min_conf=0.5)
+                _pos = self.bot.find_text(_items, _kw,
+                                         min_conf=OCR_SCREEN_CONF)
                 if _pos:
                     self.log(f"[信息] 闪烁弹窗命中「{_kw}」，点击 "
                              f"({_pos[0]},{_pos[1]})")

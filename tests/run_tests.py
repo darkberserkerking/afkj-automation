@@ -61,6 +61,7 @@ SUITES = {
     'tests/test_guild_battle_dryrun.py': ({2, 3}, False),
     'tests/test_tianqiong_trial_dryrun.py': ({2, 3}, False),
     'tests/test_tianqiong_challenge_conf.py': ({1, 2, 3}, False),   # v2.4.6 挑战低分漏检
+    'tests/test_threshold_consistency.py': ({1, 2, 3}, False),  # v2.4.7 阈值一致性审计
     'tests/test_guild_result_matrix.py': ({1, 2, 3}, False),
     'tests/test_bug_report.py': ({1, 2, 3}, True),
     'tests/test_afk_limit_confirm.py': ({1, 2, 3}, False),
@@ -128,7 +129,8 @@ CHANGE_MAP = [
                             'tests/test_imprint_pick_blacklist.py']),
     ('tasks/guild_battle.py', ['tests/test_guild_battle_dryrun.py']),
     ('tasks/tianqiong_trial.py', ['tests/test_tianqiong_trial_dryrun.py',
-                                  'tests/test_tianqiong_challenge_conf.py']),
+                                  'tests/test_tianqiong_challenge_conf.py',
+                                  'tests/test_threshold_consistency.py']),
     ('afk_bot/auto_farm/loop.py', ['tests/test_afk_limit_confirm.py',
                                    'tests/test_battle_count_consistency.py',
                                    'tests/test_rec_empty_switch.py',
@@ -211,7 +213,13 @@ CHANGE_MAP = [
       'tests/test_task_scheduler_smoke.py']),
     ('tasks/screen_registry.py',
      ['tests/test_nav_edges_coverage.py',
-      'tests/test_global_nav_consistency.py']),
+      'tests/test_global_nav_consistency.py',
+      'tests/test_threshold_consistency.py']),
+    # v2.4.7：共享阈值常量或基类默认判据改动 → 必跑全库一致性审计
+    ('tasks/text_conf.py', ['tests/test_threshold_consistency.py']),
+    ('tasks/base.py', ['tests/test_threshold_consistency.py']),
+    ('tasks/friend_gift.py', ['tests/test_friend_gift_dryrun.py',
+                              'tests/test_threshold_consistency.py']),
     ('templates/season_class_*.png',
      ['tests/test_season_equipment_dryrun.py']),
     # v2.3.35：任务栏文案一致性——任一任务说明/渲染链路改动都须跑全量校验

@@ -23,6 +23,7 @@
 """
 
 from typing import Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 from tasks.base import BaseTask
 from task_registry import TaskRegistry, TaskMeta
@@ -214,7 +215,8 @@ class AutoFarmTask(BaseTask):
         self.bot.click_at(chest_click[0], chest_click[1], '挂机_宝箱')
         self._sleep(1.5)
         items = self.bot._ocr_screen()
-        btn = self.bot.find_text(items, '收获奖励', min_conf=0.8)
+        btn = self.bot.find_text(items, '收获奖励',
+                                 min_conf=OCR_TARGET_CONF)
         if btn:
             self.log("[点击] 「收获奖励」")
             self.bot.click_at(btn[0], btn[1], '挂机_收获奖励')
@@ -446,7 +448,8 @@ class AutoFarmTask(BaseTask):
                     else:
                         # 文本兜底（个别版本可能做成文字按钮）
                         for _cw in ('确认', '确定', '立即领取'):
-                            _cp = self.bot.find_text(_cur, _cw, min_conf=0.7)
+                            _cp = self.bot.find_text(
+                                _cur, _cw, min_conf=OCR_TARGET_CONF)
                             if _cp:
                                 self.log(f"[点击] 沙漏领取「{_cw}」 | "
                                          f"({_cp[0]},{_cp[1]})")

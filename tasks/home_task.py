@@ -22,6 +22,7 @@ import re
 import time
 import numpy as np
 from typing import Dict, List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 from tasks.base import BaseTask
 from task_registry import TaskRegistry, TaskMeta
@@ -359,7 +360,7 @@ class HomeTask(BaseTask):
                 self.log("[成功] 材料加工完成，返回愿望单继续制作")
                 return 'recycle'
             # 加工按钮
-            btn = self.bot.find_text(items, '加工', min_conf=0.6)
+            btn = self.bot.find_text(items, '加工', min_conf=OCR_TARGET_CONF)
             if not btn:
                 stall += 1
                 if stall >= _WORKSHOP_STALL_MAX * 5:
@@ -558,7 +559,7 @@ class HomeTask(BaseTask):
             return 'ok' if r == 'recycle' else r
         btn_kw = _WORKSHOP_START_KW.get(ws)
         if btn_kw:
-            p = self.bot.find_text(self.bot._ocr_screen(), btn_kw, min_conf=0.6)
+            p = self.bot.find_text(self.bot._ocr_screen(), btn_kw, min_conf=OCR_TARGET_CONF)
             if p:
                 self.log(f"[点击] 「{btn_kw}」")
                 self.bot.click_at(p[0], p[1], f'工坊_{btn_kw}')
@@ -661,7 +662,7 @@ class HomeTask(BaseTask):
                 continue
 
             # 制作确认弹窗（库存够交愿望单时点开始会弹）→ 继续生产
-            prod_pos = self.bot.find_text(items, '继续生产', min_conf=0.6)
+            prod_pos = self.bot.find_text(items, '继续生产', min_conf=OCR_TARGET_CONF)
             if prod_pos:
                 self.log("[点击] 制作弹窗「继续生产」")
                 self.bot.click_at(prod_pos[0], prod_pos[1], '工坊_继续生产')
@@ -722,7 +723,7 @@ class HomeTask(BaseTask):
                 continue     # 切档后重新确认
 
             # 五段：点「开始XX」
-            btn_pos = self.bot.find_text(items, btn_kw, min_conf=0.6)
+            btn_pos = self.bot.find_text(items, btn_kw, min_conf=OCR_TARGET_CONF)
             if btn_pos:
                 batch += 1
                 self.log(f"[点击] {btn_kw}（第 {batch} 批） | "
@@ -750,7 +751,7 @@ class HomeTask(BaseTask):
                     if any('当前资源不足' in x for x in t2):
                         break   # 材料耗尽 → 交回主循环处理
                     if any('继续生产' in x for x in t2):
-                        p2 = self.bot.find_text(it2, '继续生产', min_conf=0.6)
+                        p2 = self.bot.find_text(it2, '继续生产', min_conf=OCR_TARGET_CONF)
                         if p2:
                             self.bot.click_at(p2[0], p2[1], '工坊_继续生产')
                         self._sleep(1.2)
@@ -838,7 +839,7 @@ class HomeTask(BaseTask):
 
             # ③ 底部大按钮
             if any('一键选择' in t for t in texts):
-                pos = self.bot.find_text(items, '一键选择', min_conf=0.6)
+                pos = self.bot.find_text(items, '一键选择', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.log(f"[点击] 「一键选择」 | 图像={pos}")
                     self.bot.click_at(pos[0], pos[1], '愿望单_一键选择')
@@ -891,7 +892,7 @@ class HomeTask(BaseTask):
                     self._sleep(1.5)
                     stall = 0
                     continue
-                ocr_pos = self.bot.find_text(items, '愿望单', min_conf=0.6)
+                ocr_pos = self.bot.find_text(items, '愿望单', min_conf=OCR_TARGET_CONF)
                 if ocr_pos:
                     self.log(
                         f"[点击] 愿望单按钮（OCR 兜底） | "

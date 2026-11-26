@@ -33,6 +33,7 @@ import os
 import re
 import time
 from typing import List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 from tasks.base import BaseTask
 from tasks.labyrinth import (  # noqa: E402  v1.9.46 复用跳过按钮模板
@@ -101,7 +102,8 @@ class ArenaTask(BaseTask):
     # ── 工具 ────────────────────────────────────────────────
 
     def _find_word(self, items: List[Tuple], word: str,
-                   min_conf: float = 0.6) -> Optional[Tuple[int, int]]:
+                   min_conf: float = OCR_TARGET_CONF
+                   ) -> Optional[Tuple[int, int]]:
         """子串匹配找词，返回图像坐标中心。"""
         for it in items:
             if len(it) >= 4 and it[3] >= min_conf and word in it[2]:
@@ -173,7 +175,7 @@ class ArenaTask(BaseTask):
                 return False
             items = self.bot._ocr_screen()
             texts = self._texts(items)
-            pos = self._find_word(items, '竞技场', min_conf=0.85)
+            pos = self._find_word(items, '竞技场', min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], '玩法目录_竞技场卡片')
                 self._sleep(2.5)
@@ -279,7 +281,7 @@ class ArenaTask(BaseTask):
 
             # ⑤ 玩法目录（意外退回）→ 重新点竞技场卡片
             if ('常规玩法' in texts and '活动' in texts):
-                pos = self._find_word(items, '竞技场', min_conf=0.85)
+                pos = self._find_word(items, '竞技场', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.bot.click_at(pos[0], pos[1], '玩法目录_竞技场卡片')
                     self._sleep(2.5)
@@ -398,7 +400,8 @@ class ArenaTask(BaseTask):
                     return 'clicked'
                 self.log(f"[信息] 第 {col + 1} 列双剑未命中，试下一列")
         # 无合格对手 / 合格列无双剑命中 → 点重置
-        pos = self._find_word(items, '重置', min_conf=0.6)
+        pos = self._find_word(items, '重置',
+                              min_conf=OCR_TARGET_CONF)
         if pos:
             self.log("[点击] 重置对手（候选均为好友/公会或无可点）")
             self.bot.click_at(pos[0], pos[1], '竞技场_重置')

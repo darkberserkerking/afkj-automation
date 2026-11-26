@@ -46,6 +46,7 @@ import re
 import sys
 import time
 from typing import Dict, List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF, OCR_SCREEN_CONF
 
 from tasks.base import BaseTask
 from task_registry import TaskRegistry, TaskMeta
@@ -787,7 +788,7 @@ class LabyrinthTask(BaseTask):
             bool: True 表示已进入玩法流程（弹窗已确认或未弹）
         """
         # 1. 点「进入」按钮
-        if not self._click_text('进入', min_conf=0.6):
+        if not self._click_text('进入', min_conf=OCR_TARGET_CONF):
             self.log("[错误] 未找到「进入」按钮")
             return False
 
@@ -1148,7 +1149,7 @@ class LabyrinthTask(BaseTask):
                 # 脱离触发）→ 长按「长按结束」终止探索；终止后落结算页/
                 # 迷宫主页，由后续帧自然收尾
                 self.log("[信息] 终止确认弹窗，长按「长按结束」")
-                pos = self.bot.find_text(items, '长按结束', min_conf=0.6)
+                pos = self.bot.find_text(items, '长按结束', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.bot.long_press_at(
                         pos[0], pos[1], duration=2.5, label='长按结束'
@@ -1698,7 +1699,7 @@ class LabyrinthTask(BaseTask):
             items = self.bot._ocr_screen()
             _hit = None
             for kw in _IMPRINT_BTN_KEYWORDS:
-                p = self.bot.find_text(items, kw, min_conf=0.6)
+                p = self.bot.find_text(items, kw, min_conf=OCR_TARGET_CONF)
                 if p:
                     _hit = (kw, p)
                     break
@@ -1710,7 +1711,7 @@ class LabyrinthTask(BaseTask):
                 self._sleep(0.8)
                 items = self.bot._ocr_screen()
                 for kw in _IMPRINT_BTN_KEYWORDS:
-                    p = self.bot.find_text(items, kw, min_conf=0.6)
+                    p = self.bot.find_text(items, kw, min_conf=OCR_TARGET_CONF)
                     if p:
                         _hit = (kw, p)
                         break
@@ -1864,7 +1865,7 @@ class LabyrinthTask(BaseTask):
         # v1.8.52：具名优先级（执裁之盾>溢出防御>藏品柜>强壮之力>
         # 不屈意志）——OCR 命中即点该卡，天然避开黑名单
         for kw in _IMPRINT_NAMED_PRIORITY:
-            pos = self.bot.find_text(items, kw, min_conf=0.6)
+            pos = self.bot.find_text(items, kw, min_conf=OCR_TARGET_CONF)
             if pos:
                 # v1.8.93：点击前先读同卡稀有度标签（确认后帧坐标已失效）
                 qual = self._card_quality(items, pos)
@@ -1923,7 +1924,7 @@ class LabyrinthTask(BaseTask):
             self._sleep(1.0)
             items = self.bot._ocr_screen()
             for kw2 in _IMPRINT_BTN_KEYWORDS:
-                p2 = self.bot.find_text(items, kw2, min_conf=0.6)
+                p2 = self.bot.find_text(items, kw2, min_conf=OCR_TARGET_CONF)
                 if p2:
                     self.bot.click_at(p2[0], p2[1], f'烙印_{kw2}')
                     self._sleep(1.5)
@@ -2145,7 +2146,7 @@ class LabyrinthTask(BaseTask):
             # 无「购买」按钮时也空转 4 轮）。「商品列表」与界面识别
             # （screen_registry 的 labyrinth.shop）同源，真商店帧必含它。
             # v2.1.22：**缺它不再直接判离店** —— 先区分烙印中转/转场。
-            if self.bot.find_text(items, '商品列表', min_conf=0.5) is None:
+            if self.bot.find_text(items, '商品列表', min_conf=OCR_SCREEN_CONF) is None:
                 _st: str = self._detect_play_state(items)
                 if _st == 'imprint':
                     # v2.1.22（用户 17:00）：买遗物弹烙印 = 正常环节
@@ -2170,7 +2171,7 @@ class LabyrinthTask(BaseTask):
             # v1.8.56：按本名查找（v1.8.72 更正：极速即本名，真机商店截图
             # 校准），别名命中商品名称行优先于描述行（items 按 y 排序）
             for kw in _SHOP_RELICS:
-                pos = self.bot.find_text(items, kw, min_conf=0.6)
+                pos = self.bot.find_text(items, kw, min_conf=OCR_TARGET_CONF)
                 if pos:
                     target = (kw, pos)
                     break
@@ -2187,7 +2188,7 @@ class LabyrinthTask(BaseTask):
             self.bot.click_at(pos[0], pos[1], f'商店_{kw}')
             self._sleep(1.2)
             items2 = self.bot._ocr_screen()
-            buy = self.bot.find_text(items2, '购买', min_conf=0.6)
+            buy = self.bot.find_text(items2, '购买', min_conf=OCR_TARGET_CONF)
             if buy:
                 self.bot.click_at(buy[0], buy[1], '商店_购买')
                 bought += 1
@@ -2198,7 +2199,7 @@ class LabyrinthTask(BaseTask):
         # 退出商店（v1.8.53：用已取帧直接找按钮——再调 _click_text 会
         # 多消耗一帧 OCR，帧序错位导致点不到「继续前进」）
         # v2.1.22：**只有这一步算离开商店**（用户定案）
-        pos = self.bot.find_text(items, '继续前进', min_conf=0.6)
+        pos = self.bot.find_text(items, '继续前进', min_conf=OCR_TARGET_CONF)
         if pos:
             self.bot.click_at(pos[0], pos[1], '继续前进')
             self.log(f"[信息] 商店流程结束（本次购入 {bought} 件），"
@@ -2307,7 +2308,7 @@ class LabyrinthTask(BaseTask):
         self._sleep(1.0)
         items = self.bot._ocr_screen()
         for kw in confirm_kws:
-            p2 = self.bot.find_text(items, kw, min_conf=0.6)
+            p2 = self.bot.find_text(items, kw, min_conf=OCR_TARGET_CONF)
             if p2:
                 self.bot.click_at(p2[0], p2[1], f'烙印_{kw}')
                 self._sleep(1.5)
@@ -2500,7 +2501,7 @@ class LabyrinthTask(BaseTask):
                         # 候选（用户 19:53 定案：这是正常流程，不是异常）
                         self.log("[信息] 候选不如旧烙印（品质保护），"
                                  "点「保留烙印」再抽一次")
-                        self._click_text('保留烙印', min_conf=0.6)
+                        self._click_text('保留烙印', min_conf=OCR_TARGET_CONF)
                         step = 1
                         self._sleep(1.2)
                         continue
@@ -2686,7 +2687,7 @@ class LabyrinthTask(BaseTask):
                         f"[警告] 晶粹不足（拥有 {_have} < 本次消耗 {_cost}），"
                         "结束替换流程")
                     tried.add(name)
-                    self._click_text('继续前进', min_conf=0.6)
+                    self._click_text('继续前进', min_conf=OCR_TARGET_CONF)
                     break
                 # 选中态验证：点旧烙印 → 验证「确认替换」可点；未激活重试
                 # 点击一次（v1.8.67：00:11 真机 11s 找不到按钮 = 点击未生效）
@@ -2697,7 +2698,7 @@ class LabyrinthTask(BaseTask):
                         self.log(f"[警告] 未选中？重试点击「{name}」")
                     self.bot.click_at(pos[0], pos[1], f'替换_{name}')
                     self._sleep(1.0)
-                    if self._click_text('确认替换', min_conf=0.6):
+                    if self._click_text('确认替换', min_conf=OCR_TARGET_CONF):
                         break
                     if attempt == 1:
                         dbg = self.bot._ocr_screen()
@@ -2723,7 +2724,7 @@ class LabyrinthTask(BaseTask):
                     if any('晶粹不足' in x for x in t2):
                         self.log("[警告] 晶粹不足（替换未成功），结束流程")
                         tried.add(name)
-                        self._click_text('继续前进', min_conf=0.6)
+                        self._click_text('继续前进', min_conf=OCR_TARGET_CONF)
                         return
                     if '保留烙印' in t2 or '确认选择' in t2:
                         got = True
@@ -2760,7 +2761,7 @@ class LabyrinthTask(BaseTask):
             try:
                 self._sleep(1.0)
                 for _ in range(2):
-                    if self._click_text('继续前进', min_conf=0.6):
+                    if self._click_text('继续前进', min_conf=OCR_TARGET_CONF):
                         break
                     # v1.8.85：已不在烙印界面 → 交还玩法循环，不再空等
                     _it_end = self.bot._ocr_screen()
@@ -3099,7 +3100,7 @@ class LabyrinthTask(BaseTask):
         else:
             self.log("[信息] 结束探索，退出本次迷宫")
 
-        if not self._click_text(btn_kw, min_conf=0.55):
+        if not self._click_text(btn_kw, min_conf=OCR_TARGET_CONF):
             self.log(f"[错误] 未找到「{btn_kw}」按钮")
             return ''
         self._sleep(1.5)
@@ -3108,7 +3109,7 @@ class LabyrinthTask(BaseTask):
         # 此前只查「确认」，弹窗残留到下一轮启动（startup_probe 判
         # end_confirm 再长按）才被兜住，多绕一轮；长按结束优先于确认
         pos: Optional[Tuple[int, int]] = self.bot.find_text(
-            items, '长按结束', min_conf=0.6
+            items, '长按结束', min_conf=OCR_TARGET_CONF
         )
         if pos:
             self.log("[信息] 结束探索弹出终止确认，长按「长按结束」")
@@ -3117,7 +3118,7 @@ class LabyrinthTask(BaseTask):
             self._sleep(1.5)
         else:
             pos = self.bot.find_text(
-                items, '确认', min_conf=0.6
+                items, '确认', min_conf=OCR_TARGET_CONF
             )
             if pos:
                 self.log("[信息] 结束探索弹出确认，补点「确认」")
@@ -3229,7 +3230,7 @@ class LabyrinthTask(BaseTask):
         return False
 
     def _click_text(
-        self, keyword: str, min_conf: float = 0.6
+        self, keyword: str, min_conf: float = OCR_TARGET_CONF
     ) -> bool:
         """OCR 找文字并点击，带重试（v1.7.10 加置信度日志）。
 

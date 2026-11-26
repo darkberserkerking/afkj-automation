@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 import time
 from typing import Dict, List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 from tasks.base import BACK_BUTTON_TPLS, BACK_THRESHOLD, BaseTask
 from task_registry import TaskMeta, TaskRegistry
@@ -43,7 +44,7 @@ description = "挑战当日开放塔，失败换阵容，全部完成即止"
 
 # ── 判据常量（全部来自真机截图 OCR）───────────────────────────
 _CARD_TEXT: str = '天穹试炼'          # 玩法目录卡片（完整四字，避开「女神试炼」）
-_CARD_MIN_CONF: float = 0.6
+_CARD_MIN_CONF: float = OCR_TARGET_CONF
 _LIST_WORD: str = '选择目的地'        # 塔列表页主判据（conf 0.994）
 _TOWER_KWS: Tuple[str, ...] = ('之塔', '之场')   # 「之场」= 「之塔」的已知误读
 _GO_WORD: str = '出发'                # 「出发！」去全角标点后全等
@@ -58,8 +59,9 @@ _RESULT_WORDS: Tuple[str, ...] = (
     '下一关', '战斗胜利', '战斗失败', '继续挑战', '再次挑战', '推荐提升',
 )
 
-_TEXT_MIN_CONF: float = 0.7      # 文本判据阈值（实测都 ≥0.88）
-_BTN_MIN_CONF: float = 0.85      # 其它按钮判据阈值（静态截图实测）
+_TEXT_MIN_CONF: float = OCR_TARGET_CONF   # v2.4.7 统一值
+# v2.4.6 已废弃 _BTN_MIN_CONF=0.85：按放大后静态截图定的阈值，
+# 真机实时帧「挑战！」conf 0.78 被挡掉 → 认得出页面却点不到按钮。
 # ── v2.4.6（真机 2026-11-14 09:29 用户日志实证）──────────────────
 # 「挑战！」在**实时帧**只有 conf **0.78**（日志 2/3 帧候选：
 # 「挑战！(854,753,0.78)」），_BTN_MIN_CONF 的 0.85 是按**放大后静态
@@ -68,14 +70,14 @@ _BTN_MIN_CONF: float = 0.85      # 其它按钮判据阈值（静态截图实测
 # 「出发！」早踩过同类坑（v2.3.23 已单独放宽到 0.6），这里对齐同一依据。
 # **同一词在「判画面」与「点按钮」两处必须同阈值**，否则会重演
 # 「认得出是塔内页、却点不到按钮」的死穴。
-_CHALLENGE_MIN_CONF: float = 0.6
+_CHALLENGE_MIN_CONF: float = OCR_TARGET_CONF
 # 更弱的「挑战」痕迹：区分「按钮闪烁 / OCR 抖动」与「本塔真打完」。
 # 找不到按钮 ≠ 已完成（手册铁律 16：未就绪类判定要正向证据）。
 _CHALLENGE_WEAK_CONF: float = 0.45
 _NO_CHALLENGE_HARD_MAX: int = 8   # 弱命中最多额外等 8 轮（有界，防真打完卡死）
 # v2.3.23：「出发」只有两个字，短文本 OCR 置信度波动大（实测截图 0.957，
 # 但真机实时识别可能偏低）→ 单独放宽到 0.6，避免漏检后误判「今日无开放塔」。
-_GO_MIN_CONF: float = 0.6
+_GO_MIN_CONF: float = OCR_TARGET_CONF
 _NO_GO_CONFIRM: int = 3          # 连续 N 帧找不到「出发」才判定今日无开放塔
 # v2.3.26：塔卡片高度（实测四塔 cy=324/472/618/774，间距 148~156）。
 # 用来把右侧「出发！」按钮归属到左侧最近的塔名。
@@ -235,7 +237,7 @@ class TianqiongTrialTask(BaseTask):
     # ── 判据 ────────────────────────────────────────────────
 
     def _find_exact(self, items: List[Tuple], word: str,
-                    min_conf: float = 0.6
+                    min_conf: float = OCR_TARGET_CONF
                     ) -> Optional[Tuple[int, int]]:
         """**去标点后全等**匹配，返回 (cx, cy)。
 
@@ -279,14 +281,28 @@ class TianqiongTrialTask(BaseTask):
         return has_tower and has_progress
 
     def _is_battle_prep(self, items: List[Tuple]) -> bool:
-        """备战界面：「通关阵容」或「一键采用」（同挂机/结社战线）。"""
-        texts = self._texts(items, _TEXT_MIN_CONF)
-        return any(w in t for t in texts for w in _PREP_WORDS)
+        """备战界面：「通关阵容」或「一键采用」（同挂机/结社战线）。
+
+        v2.4.7：判定与点击**共用 _find_exact 的全等标准**，消除
+        「判子串 / 点全等」的分叉（认得出页面却点不到按钮）。
+        """
+        return any(self._find_exact(items, w, OCR_TARGET_CONF)
+                   for w in _PREP_WORDS)
 
     def _is_result_page(self, items: List[Tuple]) -> bool:
-        """战斗结算页：胜利/失败标题或「继续挑战/再次挑战」按钮。"""
-        texts = self._texts(items, _TEXT_MIN_CONF)
-        return any(w in t for t in texts for w in _RESULT_WORDS)
+        """结算页：可点按钮词用与定位相同的全等标准；艺术字标题兜底。
+
+        v2.4.7：「下一关/继续挑战/再次挑战/推荐提升」既是画面判据又是
+        可点目标，判定必须与定位同标准（归一全等），否则重演 v2.4.6。
+        艺术字「战斗胜利/失败」不是可点目标，保留子串兜底（横屏可读、
+        竖屏常读不出，见 v2.3.42）。
+        """
+        if any(self._find_exact(items, w, OCR_TARGET_CONF)
+               for w in ('下一关', '继续挑战', '再次挑战', '推荐提升')):
+            return True
+        texts = self._texts(items, OCR_TARGET_CONF)
+        return any(w in t for t in texts
+                   for w in ('战斗胜利', '战斗失败'))
 
     def _find_go(self, items: List[Tuple]) -> Optional[Tuple[int, int]]:
         """找当日可进入的「出发！」按钮坐标 (cx, cy)；跳过已确认无层的塔。
@@ -294,9 +310,9 @@ class TianqiongTrialTask(BaseTask):
         **定位方式（v2.3.31）**：「出发！」是**有明确文字**的按钮 → 按用户
         规则直接走 OCR（首选方案，不是降级），无需在模板库找文字模板。
 
-        阈值用 `_GO_MIN_CONF`(0.6) 而非按钮通用的 0.85：「出发」仅两字，
-        短文本 OCR 置信度波动大，卡 0.85 会漏检（真机 2026-11-05 19:38
-        即因此误判「今日无开放中的天穹塔」直接结束）。
+        阈值用统一的 OCR_TARGET_CONF(0.6)（见 tasks/text_conf.py）：
+        「出发」仅两字，短文本置信度波动大；按静态截图定的 0.85 会漏检
+        （真机 2026-11-05 19:38 误判「今日无开放中的天穹塔」）。
         """
         for it in items:
             if len(it) < 4 or it[3] < _GO_MIN_CONF:

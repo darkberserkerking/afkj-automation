@@ -31,6 +31,7 @@
 """
 
 from typing import List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF
 
 import numpy as np
 
@@ -443,7 +444,8 @@ class DailyQuestTask(BaseTask):
             if self.check_stop():
                 return self._stop_result()
             items = self.bot._ocr_screen()
-            pos = self.bot.find_text(items, '一键领取', min_conf=0.8)
+            pos = self.bot.find_text(items, '一键领取',
+                                    min_conf=OCR_TARGET_CONF)
             if not pos:
                 # v1.9.60：无按钮可能因奖励弹窗遮挡（启动即在弹窗）
                 # → 尝试关弹窗后重扫；连续关不掉才判完成

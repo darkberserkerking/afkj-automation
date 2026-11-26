@@ -51,6 +51,7 @@ import time
 import re
 import unicodedata
 from typing import List, Optional, Tuple
+from tasks.text_conf import OCR_TARGET_CONF, OCR_SCREEN_CONF
 
 from tasks.base import BaseTask
 from tasks.labyrinth import (  # noqa: E402  v1.8.69 补参
@@ -78,8 +79,8 @@ _SWEEP_DIALOG_WAIT: float = 6.0
 _SWEEP_MISS_MAX: int = 2
 
 _SWEEP_WORD: str = '扫荡'        # 大按钮/确认按钮（全等匹配）
-_CHALLENGE_WORD: str = '挑战'    # 大按钮（子串匹配，说明文字在按钮内）
-_MIN_CONF: float = 0.6
+_CHALLENGE_WORD: str = '挑战'    # 大按钮（**全等**匹配；v1.8.17：判据文字含「挑战」子串会点错）
+_MIN_CONF: float = OCR_TARGET_CONF
 
 # ⏭ 拉满按钮模板（RGBA 透明，maskedNCC 自截 1.000；扫荡弹窗滑条行右端）
 _PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,7 +107,7 @@ _SCROLL_CLICKS: int = -30
 # 找到 → 返回 False 交由上层兜底，保证正常流程不会无限滚动。
 _SCROLL_SETTLE: float = 0.3
 _CARD_TEXT: str = '女神试炼'
-_CARD_MIN_CONF: float = 0.6
+_CARD_MIN_CONF: float = OCR_TARGET_CONF
 
 # 导航 phase 中文标签（日志用，同 labyrinth）
 _PHASE_LABELS: dict = {
@@ -186,7 +187,8 @@ class GoddessTrialTask(BaseTask):
     def _norm(text: str) -> str:
         return unicodedata.normalize('NFKC', text).strip()
 
-    def _texts(self, items: List[Tuple], min_conf: float = 0.5) -> List[str]:
+    def _texts(self, items: List[Tuple],
+               min_conf: float = OCR_SCREEN_CONF) -> List[str]:
         """文本列表（v2.1.27 P1-5：过滤规则委托基类，本类只叠加归一化）。
 
         与 base 的差异仅在**归一化**（`self._norm`），故改为
@@ -229,7 +231,8 @@ class GoddessTrialTask(BaseTask):
         self.log(f"[警告] 未找到按钮词 | {word}")
         return False
 
-    def _click_text_kw(self, keyword: str, min_conf: float = 0.6) -> bool:
+    def _click_text_kw(self, keyword: str,
+                       min_conf: float = OCR_TARGET_CONF) -> bool:
         """OCR 子串匹配找文字并点击（用户规则：挑战类直接子串即可）。"""
         deadline: float = time.time() + _TEXT_TIMEOUT
         while time.time() < deadline:
@@ -559,7 +562,8 @@ class GoddessTrialTask(BaseTask):
         用户确认（2026-09-04）：自动挑战会一直打到当前可挑战最后一层，
         等待自动结束即可，不可能打不过 → 无失败分支，只等选关页特征词。
         """
-        if not self._click_text_kw(_AUTOCHECK_MARK, min_conf=0.6):
+        if not self._click_text_kw(_AUTOCHECK_MARK,
+                                   min_conf=OCR_TARGET_CONF):
             self.log("[警告] 未找到「自动挑战」按钮，返回主循环重试")
             return
         self.log("[信息] 已点「自动挑战」，等待自动连打结束（上限 900s）")

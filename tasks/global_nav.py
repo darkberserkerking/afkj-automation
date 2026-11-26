@@ -24,6 +24,9 @@
 """
 
 from typing import Callable, Dict, List, Optional, Tuple
+from tasks.text_conf import (
+    OCR_TARGET_CONF, OCR_SCREEN_CONF, OCR_HOME_BTN_CONF,
+)
 
 from tasks.base import BACK_BUTTON_TPLS, BACK_THRESHOLD
 from tasks.nav_planner import plan_path  # v1.9.58 最短路径规划
@@ -361,7 +364,8 @@ class GlobalNavigator:
                 _bc_kw = ''
                 for _kw in ('点击空白处', '点击屏幕退出',
                             '点击任意处', '点击任意位置'):
-                    _bc = self.bot.find_text(items, _kw, min_conf=0.5)
+                    _bc = self.bot.find_text(items, _kw,
+                                            min_conf=OCR_SCREEN_CONF)
                     if _bc:
                         _bc_kw = _kw
                         break
@@ -390,7 +394,7 @@ class GlobalNavigator:
             # 2026-09-07 21:08）。OCR 实测判据 conf=0.99，点击后等待加载
             # ── v1.8.70 月刊弹窗（-2 层）：点「领取奖励」即关闭 ──
             if cur == -2:
-                pos = self.bot.find_text(items, '领取奖励', min_conf=0.6)
+                pos = self.bot.find_text(items, '领取奖励', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self._log("[点击] 月刊弹窗「领取奖励」")
                     self.bot.click_at(pos[0], pos[1], '领取奖励')
@@ -400,7 +404,7 @@ class GlobalNavigator:
                 continue
 
             if cur == -1:
-                pos = self.bot.find_text(items, '点击开始游戏', min_conf=0.6)
+                pos = self.bot.find_text(items, '点击开始游戏', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self._log("[点击] 登录界面「点击开始游戏」（进入游戏）")
                     self.bot.click_at(pos[0], pos[1], '点击开始游戏')
@@ -414,7 +418,7 @@ class GlobalNavigator:
             # 命中的是左上角标题（点击无效，死循环 5 次），正确动作=
             # 点「常规玩法」页签切到常规玩法 → 下一帧即 nav.playbook
             if screen == 'nav.playbook_activity':
-                pos = self.bot.find_text(items, '常规玩法', min_conf=0.6)
+                pos = self.bot.find_text(items, '常规玩法', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self._log("[点击] 玩法目录·活动页签 → 「常规玩法」")
                     self.bot.click_at(pos[0], pos[1], '常规玩法')
@@ -427,7 +431,8 @@ class GlobalNavigator:
             if (cur == 0 and target in ('home_scene', 'world_scene')
                     and screen != 'nav.' + target):
                 btn = '家园' if target == 'home_scene' else '世界'
-                pos = self.bot.find_text(items, btn, min_conf=0.8)
+                pos = self.bot.find_text(items, btn,
+                                        min_conf=OCR_HOME_BTN_CONF)
                 if pos:
                     self._log(f"[点击] 右下角「{btn}」按钮（场景切换）")
                     self.bot.click_at(pos[0], pos[1],
@@ -441,7 +446,7 @@ class GlobalNavigator:
             if cur in (0, 1) and tgt_layer == 1:
                 btn = BOTTOM_BUTTONS.get(target)
                 if btn:
-                    pos = self.bot.find_text(items, btn, min_conf=0.6)
+                    pos = self.bot.find_text(items, btn, min_conf=OCR_TARGET_CONF)
                     if pos:
                         self._log(f"[点击] 底部「{btn}」（直达 1 层）")
                         self.bot.click_at(pos[0], pos[1], btn)
@@ -454,7 +459,7 @@ class GlobalNavigator:
                 # 进入 2 层玩法页：先经底部 UI 到玩法目录，再点卡片
                 if screen != 'nav.playbook':
                     pos = self.bot.find_text(
-                        items, '玩法目录', min_conf=0.6
+                        items, '玩法目录', min_conf=OCR_TARGET_CONF
                     )
                     if pos:
                         self._log("[点击] 底部「玩法目录」（去玩法目录找卡片）")
@@ -465,7 +470,7 @@ class GlobalNavigator:
                     self._escape(screen)
                     continue
                 # 已在玩法目录：点目标卡片（含滚动找卡，上限见 _scroll）
-                pos = self.bot.find_text(items, self._card, min_conf=0.6)
+                pos = self.bot.find_text(items, self._card, min_conf=OCR_TARGET_CONF)
                 if pos:
                     self._log(f"[点击] 卡片「{self._card}」（1 层 → 2 层）")
                     self.bot.click_at(pos[0], pos[1], self._card)
@@ -505,20 +510,20 @@ class GlobalNavigator:
             return True
         # v1.8.70：月刊弹窗 → 点「领取奖励」（与 navigate_to 一致）
         if cur == -2:
-            pos = self.bot.find_text(items, '领取奖励', min_conf=0.6)
+            pos = self.bot.find_text(items, '领取奖励', min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], '领取奖励')
             return False
         # v1.8.61：登录界面 → 点「点击开始游戏」（与 navigate_to 一致）
         if cur == -1:
-            pos = self.bot.find_text(items, '点击开始游戏', min_conf=0.6)
+            pos = self.bot.find_text(items, '点击开始游戏', min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], '点击开始游戏')
             return False
         # v1.8.83：玩法目录·活动页签 → 点「常规玩法」切页签
         # （与 navigate_to 一致；真机 2026-09-08 17:58 用户定案）
         if screen == 'nav.playbook_activity':
-            pos = self.bot.find_text(items, '常规玩法', min_conf=0.6)
+            pos = self.bot.find_text(items, '常规玩法', min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], '常规玩法')
             else:
@@ -527,17 +532,17 @@ class GlobalNavigator:
         if cur in (0, 1) and tgt_layer == 1:
             btn = BOTTOM_BUTTONS.get(target)
             if btn:
-                pos = self.bot.find_text(items, btn, min_conf=0.6)
+                pos = self.bot.find_text(items, btn, min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.bot.click_at(pos[0], pos[1], btn)
                     return False
         if tgt_layer >= 2 and self._card:
             if screen != 'nav.playbook':
-                pos = self.bot.find_text(items, '玩法目录', min_conf=0.6)
+                pos = self.bot.find_text(items, '玩法目录', min_conf=OCR_TARGET_CONF)
                 if pos:
                     self.bot.click_at(pos[0], pos[1], '玩法目录')
                     return False
-            pos = self.bot.find_text(items, self._card, min_conf=0.6)
+            pos = self.bot.find_text(items, self._card, min_conf=OCR_TARGET_CONF)
             if pos:
                 self.bot.click_at(pos[0], pos[1], self._card)
             return False
